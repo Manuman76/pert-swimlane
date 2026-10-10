@@ -105,6 +105,10 @@
                    hx-get="{{ url_for('main.project', id=project.id) }}"
                    hx-target="#task-table-body"
                    hx-select="#task-table-body"
+                   {# Forms live inside this tbody; without this, they would inherit
+                      hx-select="#task-table-body", find no such element in their
+                      row-only response, and swap in an empty table body. #}
+                   hx-disinherit="hx-select"
                    hx-swap="innerHTML">
               {% include "partials/task_table_body.html" %}
             </tbody>
@@ -130,14 +134,16 @@
 </div>
 
 <script>
-// Trigger diagram refresh after any task update/delete
-(function() {
-  const body = document.body;
-  body.addEventListener('htmx:afterSwap', function(evt) {
-    if (evt.detail.target.id === 'task-table-body') {
-      htmx.trigger('body', 'refreshDiagram');
-    }
-  });
-})();
+// Diagram refresh is now handled via HX-Trigger-After-Swap headers from task endpoints.
+
+// The task update endpoint returns 422 with the offending grid rows (including
+// inline error tooltips) when validation blocks a save. By default HTMX does not
+// swap non-2xx responses, so the errors would never reach the page.
+document.body.addEventListener('htmx:beforeSwap', function (evt) {
+  if (evt.detail.xhr.status === 422) {
+    evt.detail.shouldSwap = true;
+    evt.detail.isError = false;
+  }
+});
 </script>
 {% endblock %}

@@ -1,18 +1,18 @@
 <div class="diagram-wrapper">
+  {# `lane_tops` / `lane_heights` are provided by build_diagram(). Fall back to a
+     uniform band height so a stale/partial template context can never blank the
+     whole diagram with an UndefinedError. #}
+  {% set lane_tops = lane_tops if lane_tops is defined else {} %}
+  {% set lane_heights = lane_heights if lane_heights is defined else {} %}
   <div class="diagram-canvas" style="width:{{ canvas_w }}px; height:{{ canvas_h }}px;">
-    <!-- Top annotation strip -->
-    <div class="diagram-header" style="left:0; top:0; width:{{ canvas_w }}px; height:{{ header_h }}px;">
-      <div class="header-item"><span class="header-label">Task</span><span class="header-arrow">&darr;</span></div>
-      <div class="header-item"><span class="header-label">Dependency</span><span class="header-arrow">&darr;</span></div>
-      <div class="header-item"><span class="header-label">Lane</span><span class="header-arrow">&darr;</span></div>
-    </div>
-
     <!-- Lane bands -->
     {% for lane in lanes %}
+    {% set band_top = lane_tops.get(lane.id, loop.index0 * lane_h) %}
+    {% set band_h = lane_heights.get(lane.id, lane_h) %}
     <div class="lane-band {% if loop.index is odd %}lane-odd{% else %}lane-even{% endif %}"
-         style="left:0; top:{{ header_h + loop.index0 * (lane_h + lane_gap) }}px;
-                width:{{ canvas_w }}px; height:{{ lane_h }}px;">
-      <div class="lane-label" style="width:{{ lane_label_w }}px; height:{{ lane_h }}px;">
+         style="left:0; top:{{ band_top }}px;
+                width:{{ canvas_w }}px; height:{{ band_h }}px;">
+      <div class="lane-label" style="width:{{ lane_label_w }}px; height:{{ band_h }}px;">
         <span class="lane-name">{{ lane.name }}</span>
       </div>
     </div>

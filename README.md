@@ -71,8 +71,12 @@ The diagram is computed server-side with deterministic layout:
 
 1. Lanes render top-to-bottom in `sort_order`
 2. Within each lane, tasks sort by `start_date` then `code`, placed left-to-right
-3. Cards are HTML/CSS absolutely-positioned divs
-4. Dependency arrows are drawn with inline SVG using orthogonal routing
+3. Tasks in the same lane that share the same (non-empty) predecessor set are
+   siblings: they occupy the same column and **stack vertically**. The lane band
+   grows to fit the tallest stack. This keeps the shared predecessor's incoming
+   arrow from cutting through a sibling card.
+4. Cards are HTML/CSS absolutely-positioned divs
+5. Dependency arrows are drawn with inline SVG using orthogonal routing
 
 ## Validated Rules (Blocking)
 

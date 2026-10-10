@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from flask import Blueprint, render_template, request, redirect, url_for, abort
+from flask import Blueprint, render_template, request, redirect, url_for, abort, make_response
 from .db import db
 from .models import Project, Lane, Task
 
@@ -227,7 +227,9 @@ def create_task(id):
     db.session.add(task)
     db.session.commit()
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    return render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date)
+    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
+    response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+    return response
 
 
 @bp.route("/tasks/<int:task_id>/update", methods=["POST"])
@@ -272,7 +274,7 @@ def update_task(task_id):
 
     if errors:
         tasks = Task.query.filter_by(project_id=proj.id).all()
-        return render_template(
+        response = make_response(render_template(
             "partials/task_table_body.html",
             project=proj,
             lanes=lanes,
@@ -289,7 +291,9 @@ def update_task(task_id):
                 }
             },
             fmt_date=fmt_date,
-        ), 422
+        ))
+        response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+        return response, 422
 
     task.name = new_name
     task.lane_id = new_lane_id
@@ -299,7 +303,9 @@ def update_task(task_id):
     task.predecessors = new_preds
     db.session.commit()
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    return render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date)
+    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
+    response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+    return response
 
 
 @bp.route("/tasks/<int:task_id>/delete", methods=["POST"])
@@ -319,7 +325,9 @@ def delete_task(task_id):
     db.session.delete(task)
     db.session.commit()
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    return render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date)
+    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
+    response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+    return response
 
 
 # Diagram partials

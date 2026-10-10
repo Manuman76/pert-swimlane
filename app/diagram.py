@@ -1,13 +1,17 @@
+from collections import deque
 from datetime import timedelta
 
 CARD_W = 168
 CARD_H = 92
 GAP_X = 24
+V_GAP = 16
 LANE_H = 140
-LANE_GAP = 16
+LANE_GAP = 0
 LANE_LABEL_W = 120
 HEADER_H = 36
 RIGHT_MARGIN = 40
+# Vertical breathing room above/below the cards inside a lane.
+V_PAD = (LANE_H - CARD_H) // 2
 
 
 def build_diagram(lanes, tasks):
@@ -26,33 +30,88 @@ def build_diagram(lanes, tasks):
     for lid in tasks_by_lane:
         tasks_by_lane[lid].sort(key=lambda t: (t.start_date, t.code))
 
-    # Build positions
-    positions = {}  # task.code -> {x, y, lane_idx, idx_in_lane}
+    # All task codes available in this project
+    all_tasks_map = {t.code: t for t in tasks}
+
+    # Flow columns: every task must sit to the right of all its predecessors.
+    # (Topological order; Kahn's algorithm. Cycles can't exist in saved data,
+    # but any orphaned tasks simply stay at column 0 if they do.)
+    dependents = {t.code: [] for t in tasks}
+    in_deg = {}
+    for t in tasks:
+        preds = [p for p in t.predecessor_codes() if p in all_tasks_map]
+        in_deg[t.code] = len(preds)
+        for p in preds:
+            dependents[p].append(t.code)
+    min_col = {t.code: 0 for t in tasks}
+    queue = deque(c for c, n in in_deg.items() if n == 0)
+    while queue:
+        c = queue.popleft()
+        for d in dependents[c]:
+            min_col[d] = max(min_col[d], min_col[c] + 1)
+            in_deg[d] -= 1
+            if in_deg[d] == 0:
+                queue.append(d)
+
+    # Build positions. Within a lane, tasks that share the same (non-empty)
+    # predecessor set are siblings: they occupy the same column and stack
+    # vertically. This keeps their shared incoming arrow from crossing the
+    # other sibling's card.
+    positions = {}  # task.code -> {x, y, lane_idx, idx_in_lane, col, row}
+    lane_tops = {}  # lane.id -> top offset (px)
+    lane_heights = {}  # lane.id -> band height (px)
+    y_cursor = 0
     for lane in lanes:
         li = lane_index[lane.id]
+        col = None
+        rows_in_col = {}      # col -> number of stacked cards
+        col_for_preds = {}    # predecessor signature -> col
+        placements = []
         for idx, task in enumerate(tasks_by_lane[lane.id]):
-            x = LANE_LABEL_W + idx * (CARD_W + GAP_X)
-            y = HEADER_H + li * (LANE_H + LANE_GAP)
+            preds = tuple(sorted(
+                p for p in task.predecessor_codes() if p in all_tasks_map
+            ))
+            if preds and preds in col_for_preds:
+                c = col_for_preds[preds]
+            else:
+                base = min_col[task.code]
+                c = base if col is None else max(base, col + 1)
+                col = c
+                if preds:
+                    col_for_preds[preds] = c
+            r = rows_in_col.get(c, 0)
+            rows_in_col[c] = r + 1
+            placements.append((task, idx, c, r))
+
+        max_rows = max(rows_in_col.values()) if rows_in_col else 1
+        content_h = max_rows * CARD_H + (max_rows - 1) * V_GAP
+        lane_h = content_h + 2 * V_PAD
+        top_pad = (lane_h - content_h) / 2
+        lane_tops[lane.id] = y_cursor
+        lane_heights[lane.id] = lane_h
+
+        for task, idx, c, r in placements:
+            x = LANE_LABEL_W + GAP_X + c * (CARD_W + GAP_X)
+            y = y_cursor + top_pad + r * (CARD_H + V_GAP)
             positions[task.code] = {
                 "x": x,
                 "y": y,
                 "lane_idx": li,
                 "idx_in_lane": idx,
+                "col": c,
+                "row": r,
                 "task": task,
             }
+        y_cursor += lane_h
 
     # Canvas size
     max_width = LANE_LABEL_W + RIGHT_MARGIN
-    for lane in lanes:
-        n = len(tasks_by_lane[lane.id])
-        w = LANE_LABEL_W + max(0, n * (CARD_W + GAP_X) - GAP_X) + RIGHT_MARGIN
-        if w > max_width:
-            max_width = w
-    canvas_h = HEADER_H + len(lanes) * (LANE_H + LANE_GAP) - LANE_GAP + 20
+    for p in positions.values():
+        max_width = max(max_width, p["x"] + CARD_W + RIGHT_MARGIN)
+    canvas_h = y_cursor + 20
 
     # Build arrows
     arrows = []
-    all_tasks_map = {t.code: t for t in tasks}
 
     # Collect dependency edges
     edges = []
@@ -80,7 +139,7 @@ def build_diagram(lanes, tasks):
         s_lane = src["lane_idx"]
         d_lane = dst["lane_idx"]
 
-        backward = (d_lane < s_lane) or (d_lane == s_lane and dst["idx_in_lane"] <= src["idx_in_lane"])
+        backward = (d_lane < s_lane) or (d_lane == s_lane and dx < sx + CARD_W)
 
         # Anchor points
         if backward:
@@ -101,31 +160,41 @@ def build_diagram(lanes, tasks):
         stroke = "#444"
         stroke_dash = ""
 
-        if not backward and s_lane == d_lane and dst["idx_in_lane"] > src["idx_in_lane"]:
-            # Same lane, forward: horizontal straight
+        if not backward and s_lane == d_lane and ay1 == ay2:
+            # Same lane, same row, forward: horizontal straight
             path = f"M {ax1} {ay1} L {ax2} {ay2}"
+        elif not backward and s_lane == d_lane:
+            # Same lane but stacked rows: right stub -> vertical -> left edge
+            stub = 12
+            path = f"M {ax1} {ay1} L {ax1 + stub} {ay1} L {ax1 + stub} {ay2} L {ax2} {ay2}"
         elif not backward and d_lane > s_lane:
             # Downward: right stub -> vertical -> left stub
             stub = 12
-            mid_x = ax1 + stub
-            # Route vertical in gap between src and dst if possible
+            candidates = []
             if dx > sx + CARD_W:
-                mid_x = sx + CARD_W + (dx - (sx + CARD_W)) / 2
-            else:
-                mid_x = ax1 + stub + get_v_offset(ax1 + stub, ay1, ay2)
+                candidates.append(sx + CARD_W + (dx - (sx + CARD_W)) / 2)
+            candidates.append(ax1 + stub)
+            # Pick a vertical x that does not pass through cards in the lanes in between.
+            mid_x = None
+            for cand in candidates:
+                clash = any(
+                    s_lane < p["lane_idx"] < d_lane and p["x"] < cand < p["x"] + CARD_W
+                    for p in positions.values()
+                )
+                if not clash:
+                    mid_x = cand
+                    break
+            if mid_x is None:
+                mid_x = candidates[-1] + get_v_offset(candidates[-1], ay1, ay2)
             path = f"M {ax1} {ay1} L {mid_x} {ay1} L {mid_x} {ay2} L {ax2} {ay2}"
         else:
-            # Backward or same-lane backward: route around bottom/right
+            # Backward: task sits left/above; route around the outer right margin
+            # and enter the destination from its top.
             stroke = "#c0392b"
             stroke_dash = "4,3"
             marker = "url(#arrowhead-red)"
-            # Go right from src, down to dst lane, left to dst
-            if d_lane > s_lane:
-                # down and left/back: go right, down, left
-                rx = max_width - 20
-                path = f"M {ax1} {ay1} L {rx} {ay1} L {rx} {ay2} L {ax2} {ay2}"
-            elif d_lane < s_lane:
-                # up: go right, up, left
+            if d_lane < s_lane:
+                # up and left: go right, up, left
                 rx = max_width - 20
                 path = f"M {ax1} {ay1} L {rx} {ay1} L {rx} {ay2} L {ax2} {ay2}"
             else:
@@ -149,9 +218,9 @@ def build_diagram(lanes, tasks):
         canvas_w=max_width,
         canvas_h=canvas_h,
         arrows=arrows,
-        header_h=HEADER_H,
+        lane_tops=lane_tops,
+        lane_heights=lane_heights,
         lane_h=LANE_H,
-        lane_gap=LANE_GAP,
         lane_label_w=LANE_LABEL_W,
         card_w=CARD_W,
         card_h=CARD_H,
