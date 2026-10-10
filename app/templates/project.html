@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }}{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col">
+    <h2>{{ project.name }}</h2>
+    <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-secondary">&larr; Back to projects</a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Lanes</strong>
+        <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
+              hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+              hx-target="body" hx-swap="outerHTML"
+              class="d-inline-flex gap-2">
+          <input type="hidden" name="action" value="add">
+          <input type="text" name="name" class="form-control form-control-sm" placeholder="New lane name" required style="width:200px">
+          <button class="btn btn-sm btn-primary" type="submit">Add Lane</button>
+        </form>
+      </div>
+      <div class="card-body">
+        {% if lanes %}
+        <div class="d-flex flex-wrap gap-2">
+          {% for lane in lanes %}
+          <div class="border rounded p-2 d-flex align-items-center gap-2 bg-white">
+            <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
+                  hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+                  hx-target="body" hx-swap="outerHTML"
+                  class="d-inline-flex gap-1 align-items-center">
+              <input type="hidden" name="lane_id" value="{{ lane.id }}">
+              <input type="hidden" name="action" value="rename">
+              <input type="text" name="name" class="form-control form-control-sm" value="{{ lane.name }}" required style="width:140px">
+              <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+            </form>
+            <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
+                  hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+                  hx-target="body" hx-swap="outerHTML"
+                  class="d-inline">
+              <input type="hidden" name="lane_id" value="{{ lane.id }}">
+              <input type="hidden" name="action" value="move_up">
+              <button class="btn btn-sm btn-outline-secondary" type="submit" {% if loop.first %}disabled{% endif %}>&uarr;</button>
+            </form>
+            <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
+                  hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+                  hx-target="body" hx-swap="outerHTML"
+                  class="d-inline">
+              <input type="hidden" name="lane_id" value="{{ lane.id }}">
+              <input type="hidden" name="action" value="move_down">
+              <button class="btn btn-sm btn-outline-secondary" type="submit" {% if loop.last %}disabled{% endif %}>&darr;</button>
+            </form>
+            <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
+                  hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+                  hx-target="body" hx-swap="outerHTML"
+                  class="d-inline"
+                  onsubmit="return confirm('Delete lane &quot;{{ lane.name }}&quot;? Tasks will be moved to the first remaining lane.')">
+              <input type="hidden" name="lane_id" value="{{ lane.id }}">
+              <input type="hidden" name="action" value="delete">
+              <button class="btn btn-sm btn-outline-danger" type="submit">&times;</button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No lanes yet. Add at least one lane before creating tasks.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Tasks</strong>
+        {% if lanes %}
+        <form method="POST" action="{{ url_for('main.create_task', id=project.id) }}"
+              hx-post="{{ url_for('main.create_task', id=project.id) }}"
+              hx-target="#task-table-body"
+              hx-swap="innerHTML">
+          <button class="btn btn-sm btn-success" type="submit">+ Add Task</button>
+        </form>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-bordered table-hover mb-0 align-middle" id="task-table">
+            <thead class="table-light">
+              <tr>
+                <th style="width:60px">ID</th>
+                <th>Task name</th>
+                <th style="width:160px">Lane</th>
+                <th style="width:130px">Start date</th>
+                <th style="width:90px">Duration</th>
+                <th style="width:130px">End date</th>
+                <th>Responsible</th>
+                <th style="width:140px">Predecessors</th>
+                <th style="width:80px"></th>
+              </tr>
+            </thead>
+            <tbody id="task-table-body"
+                   hx-trigger="refreshGrid from:body"
+                   hx-get="{{ url_for('main.project', id=project.id) }}"
+                   hx-target="#task-table-body"
+                   hx-select="#task-table-body"
+                   hx-swap="innerHTML">
+              {% include "partials/task_table_body.html" %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Diagram</strong></div>
+      <div class="card-body p-0">
+        <div id="diagram-container"
+             hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
+             hx-trigger="load, refreshDiagram from:body"
+             hx-swap="innerHTML">
+          <div class="p-4 text-muted">Loading diagram…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Trigger diagram refresh after any task update/delete
+(function() {
+  const body = document.body;
+  body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'task-table-body') {
+      htmx.trigger('body', 'refreshDiagram');
+    }
+  });
+})();
+</script>
+{% endblock %}

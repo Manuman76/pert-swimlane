@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-8 mx-auto">
+    <h2>Projects</h2>
+    <form method="POST" action="{{ url_for('main.create_project') }}" class="d-flex gap-2 mb-4">
+      <input type="text" class="form-control" name="name" placeholder="New project name" required>
+      <button class="btn btn-primary" type="submit">Create</button>
+    </form>
+    <table class="table table-hover bg-white shadow-sm">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Updated</th>
+          <th>Tasks</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in projects %}
+        <tr>
+          <td>
+            <a href="{{ url_for('main.project', id=p.id) }}" class="fw-semibold">{{ p.name }}</a>
+          </td>
+          <td>{{ p.updated_at.strftime("%Y-%m-%d %H:%M") if p.updated_at else "" }}</td>
+          <td>{{ p.task_count }}</td>
+          <td class="text-end">
+            <form method="POST" action="{{ url_for('main.rename_project', id=p.id) }}" class="d-inline-flex gap-1">
+              <input type="text" name="name" class="form-control form-control-sm" value="{{ p.name }}" required style="width:160px">
+              <button class="btn btn-sm btn-outline-secondary" type="submit">Rename</button>
+            </form>
+            <form method="POST" action="{{ url_for('main.delete_project', id=p.id) }}" class="d-inline"
+                  onsubmit="return confirm('Delete this project and all its data?')">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-muted">No projects yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

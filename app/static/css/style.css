@@ -1,0 +1,135 @@
+/* Diagram styles */
+.diagram-wrapper {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #ddd;
+}
+
+.diagram-canvas {
+  position: relative;
+  background: #fafafa;
+}
+
+.diagram-header {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 48px;
+  border-bottom: 1px solid #ccc;
+  background: #fff;
+  z-index: 10;
+}
+
+.header-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a94442;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.header-arrow {
+  font-size: 16px;
+  color: #a94442;
+  line-height: 1;
+}
+
+.lane-band {
+  position: absolute;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.lane-odd {
+  background: #fdfdfd;
+}
+
+.lane-even {
+  background: #f4f7f9;
+}
+
+.lane-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 12px;
+  box-sizing: border-box;
+  border-right: 1px solid #ddd;
+}
+
+.lane-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  text-align: right;
+}
+
+.task-card {
+  position: absolute;
+  background: #fff;
+  border: 1px solid #5a9;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  overflow: hidden;
+  z-index: 5;
+}
+
+.card-header-bar {
+  background: #5a9;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-body {
+  font-size: 11px;
+  text-align: center;
+}
+
+.card-row {
+  display: flex;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.card-cell {
+  flex: 1;
+  padding: 2px 4px;
+  border-right: 1px solid #e0e0e0;
+}
+
+.card-cell:last-child {
+  border-right: none;
+}
+
+.card-footer {
+  padding: 2px 4px;
+  color: #888;
+  font-size: 10px;
+}
+
+.diagram-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+table#task-table th, table#task-table td {
+  vertical-align: middle;
+}
+
+.invalid-tooltip {
+  font-size: 11px;
+  color: #dc3545;
+}

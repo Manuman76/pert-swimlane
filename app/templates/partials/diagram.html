@@ -1,0 +1,59 @@
+<div class="diagram-wrapper">
+  <div class="diagram-canvas" style="width:{{ canvas_w }}px; height:{{ canvas_h }}px;">
+    <!-- Top annotation strip -->
+    <div class="diagram-header" style="left:0; top:0; width:{{ canvas_w }}px; height:{{ header_h }}px;">
+      <div class="header-item"><span class="header-label">Task</span><span class="header-arrow">&darr;</span></div>
+      <div class="header-item"><span class="header-label">Dependency</span><span class="header-arrow">&darr;</span></div>
+      <div class="header-item"><span class="header-label">Lane</span><span class="header-arrow">&darr;</span></div>
+    </div>
+
+    <!-- Lane bands -->
+    {% for lane in lanes %}
+    <div class="lane-band {% if loop.index is odd %}lane-odd{% else %}lane-even{% endif %}"
+         style="left:0; top:{{ header_h + loop.index0 * (lane_h + lane_gap) }}px;
+                width:{{ canvas_w }}px; height:{{ lane_h }}px;">
+      <div class="lane-label" style="width:{{ lane_label_w }}px; height:{{ lane_h }}px;">
+        <span class="lane-name">{{ lane.name }}</span>
+      </div>
+    </div>
+    {% endfor %}
+
+    <!-- Task cards (positioned absolutely within canvas) -->
+    {% for lane in lanes %}
+      {% for task in tasks_by_lane[lane.id] %}
+        {% set pos = positions[task.code] %}
+        <div class="task-card" style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ card_w }}px; height:{{ card_h }}px;">
+          <div class="card-header-bar" title="{{ task.name }}">{{ task.name }}</div>
+          <div class="card-body">
+            <div class="card-row">
+              <div class="card-cell">{{ task.code }}</div>
+              <div class="card-cell">{{ task.duration_days }} day{% if task.duration_days != 1 %}s{% endif %}</div>
+            </div>
+            <div class="card-row">
+              <div class="card-cell">{{ task.start_date.strftime("%-d %b %Y") }}</div>
+              <div class="card-cell">{{ task.end_date.strftime("%-d %b %Y") }}</div>
+            </div>
+            <div class="card-footer">{{ task.responsible or '' }}</div>
+          </div>
+        </div>
+      {% endfor %}
+    {% endfor %}
+
+    <!-- SVG arrow overlay -->
+    <svg class="diagram-svg" width="{{ canvas_w }}" height="{{ canvas_h }}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#444" />
+        </marker>
+        <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#c0392b" />
+        </marker>
+      </defs>
+      {% for arrow in arrows %}
+      <path d="{{ arrow.path }}" fill="none" stroke="{{ arrow.stroke }}" stroke-width="1.5"
+            {% if arrow.stroke_dash %}stroke-dasharray="{{ arrow.stroke_dash }}"{% endif %}
+            marker-end="{{ arrow.marker }}" />
+      {% endfor %}
+    </svg>
+  </div>
+</div>

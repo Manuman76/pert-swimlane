@@ -1,0 +1,63 @@
+{% set task = task %}
+{% set task_errors = task_errors %}
+{% if draft %}
+  {% set t_name = draft.name %}
+  {% set t_lane_id = draft.lane_id %}
+  {% set t_start = draft.start_date %}
+  {% set t_dur = draft.duration_days %}
+  {% set t_resp = draft.responsible %}
+  {% set t_preds = draft.predecessors %}
+{% else %}
+  {% set t_name = task.name %}
+  {% set t_lane_id = task.lane_id %}
+  {% set t_start = task.start_date %}
+  {% set t_dur = task.duration_days %}
+  {% set t_resp = task.responsible %}
+  {% set t_preds = task.predecessors %}
+{% endif %}
+<tr id="task-row-{{ task.id }}">
+  <td class="font-monospace text-muted">{{ task.code }}</td>
+  <td>
+    <input form="task-form-{{ task.id }}" type="text" name="name" value="{{ t_name }}" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+  </td>
+  <td>
+    <select form="task-form-{{ task.id }}" name="lane_id" class="form-select form-select-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+      {% for lane in lanes %}
+      <option value="{{ lane.id }}" {% if t_lane_id == lane.id %}selected{% endif %}>{{ lane.name }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td>
+    <input form="task-form-{{ task.id }}" type="text" name="start_date" value="{{ fmt_date(t_start) if t_start else '' }}" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+  </td>
+  <td>
+    <input form="task-form-{{ task.id }}" type="number" name="duration_days" value="{{ t_dur if t_dur is not none else '' }}" min="1" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+  </td>
+  <td class="text-muted">{{ fmt_date(task.end_date) }}</td>
+  <td>
+    <input form="task-form-{{ task.id }}" type="text" name="responsible" value="{{ t_resp or '' }}" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+  </td>
+  <td>
+    <input form="task-form-{{ task.id }}" type="text" name="predecessors" value="{{ t_preds or '' }}" class="form-control form-control-sm {% if task_errors %}is-invalid{% endif %}"
+           placeholder="001, 002" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+    {% if task_errors %}
+      <div class="invalid-tooltip d-block position-relative mt-1">
+        {% for e in task_errors %}<div>{{ e }}</div>{% endfor %}
+      </div>
+    {% endif %}
+  </td>
+  <td>
+    <form id="task-form-{{ task.id }}" method="POST" action="{{ url_for('main.update_task', task_id=task.id) }}"
+          hx-post="{{ url_for('main.update_task', task_id=task.id) }}"
+          hx-target="#task-table-body"
+          hx-swap="innerHTML"></form>
+    <form method="POST" action="{{ url_for('main.delete_task', task_id=task.id) }}"
+          hx-post="{{ url_for('main.delete_task', task_id=task.id) }}"
+          hx-target="#task-table-body"
+          hx-swap="innerHTML"
+          onsubmit="return confirm('Delete task {{ task.code }}?')"
+          class="d-inline">
+      <button class="btn btn-sm btn-outline-danger" type="submit">&times;</button>
+    </form>
+  </td>
+</tr>
