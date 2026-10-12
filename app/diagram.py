@@ -2,7 +2,7 @@ from collections import deque
 from datetime import timedelta
 
 CARD_W = 168
-CARD_H = 92
+CARD_H = 108  # tall enough for a two-line title
 GAP_X = 24
 V_GAP = 16
 LANE_H = 140

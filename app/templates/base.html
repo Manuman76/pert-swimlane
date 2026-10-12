@@ -10,8 +10,9 @@
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-    <div class="container-fluid">
+    <div class="container-fluid d-flex align-items-center">
       <a class="navbar-brand" href="{{ url_for('main.index') }}">PERT Swimlane</a>
+      <div class="ms-auto" {% block navbar_right_attrs %}{% endblock %}>{% block navbar_right %}{% endblock %}</div>
     </div>
   </nav>
   <main class="container-fluid">{% block content %}{% endblock %}</main>

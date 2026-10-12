@@ -1,4 +1,6 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from collections import deque
+
 from flask import Blueprint, render_template, request, redirect, url_for, abort, make_response
 from .db import db
 from .models import Project, Lane, Task
@@ -19,6 +21,63 @@ def parse_date(s):
         except ValueError:
             continue
     return None
+
+
+# ---------------------------------------------------------------------------
+# Scheduling
+# ---------------------------------------------------------------------------
+
+def recalculate_project(project_id):
+    """Recompute start dates for every task in the project.
+
+    Rule: a task's end date is ``start_date + duration_days`` (the first day a
+    successor may start), and every task must start on or after the latest end
+    date of its predecessors. Whenever a task or its predecessor set changes,
+    this pushes affected dates forward along the dependency chain so the whole
+    project stays consistent; the grid is the source of truth and the diagram
+    simply reads the data back.
+
+    * Tasks with no predecessors keep their entered start date: they anchor
+      the schedule.
+    * Tasks are processed in dependency order (predecessors first), so a
+      change cascades through the full chain in a single pass.
+    * Dates only ever move forward: shortening a predecessor never pulls a
+      successor earlier.
+
+    Only the start dates of tasks inside this session are touched; the caller
+    commits. Returns the codes whose start date was moved.
+    """
+    by_code = {t.code: t for t in Task.query.filter_by(project_id=project_id)}
+    if not by_code:
+        return []
+
+    dependents = {code: [] for code in by_code}
+    indegree = {}
+    for code, task in by_code.items():
+        preds = [p for p in task.predecessor_codes() if p in by_code and p != code]
+        indegree[code] = len(preds)
+        for p in preds:
+            dependents[p].append(code)
+
+    queue = deque(sorted(c for c in by_code if indegree[c] == 0))
+    moved = []
+    while queue:
+        code = queue.popleft()
+        task = by_code[code]
+        preds = [by_code[p] for p in task.predecessor_codes()
+                 if p in by_code and p != code]
+        if preds:
+            earliest = max(p.end_date for p in preds)
+            if task.start_date < earliest:
+                task.start_date = earliest
+                moved.append(code)
+        for d in dependents[code]:
+            indegree[d] -= 1
+            if indegree[d] == 0:
+                queue.append(d)
+    # Tasks left unprocessed belong to a predecessor cycle; they keep their
+    # entered dates (cycles cannot be saved, validate_task rejects them).
+    return moved
 
 
 # Projects index
@@ -133,7 +192,7 @@ def next_task_code(project_id):
     return f"{next_num:03d}"
 
 
-def validate_task(task, project_id, exclude_task_id=None):
+def validate_task(task, project_id, exclude_task_id=None, check_schedule=True):
     errors = []
     if not task.start_date:
         errors.append("Start date is missing or not a valid date.")
@@ -178,7 +237,7 @@ def validate_task(task, project_id, exclude_task_id=None):
                     break
 
             # Scheduling violation
-            if codes and task.start_date:
+            if check_schedule and codes and task.start_date:
                 all_tasks_map = {t.code: t for t in all_tasks}
                 pred_end_dates = []
                 for c in codes:
@@ -195,12 +254,31 @@ def validate_task(task, project_id, exclude_task_id=None):
 # Routes for tasks
 # ---------------------------------------------------------------------------
 
+def project_date_stats(tasks):
+    """Project-level totals shown above the Lanes panel.
+
+    `total_effort` is the sum of all task durations in days, and
+    `total_duration` the (inclusive) calendar span from the earliest start
+    date to the latest end date.
+    """
+    if not tasks:
+        return 0, 0, None, None
+    total_effort = sum(t.duration_days for t in tasks)
+    project_start = min(t.start_date for t in tasks)
+    project_end = max(t.end_date for t in tasks)
+    return total_effort, (project_end - project_start).days, project_start, project_end
+
+
 @bp.route("/projects/<int:id>", methods=["GET"])
 def project(id):
     proj = Project.query.get_or_404(id)
     lanes = Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    return render_template("project.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date)
+    total_effort, total_duration, project_start, project_end = project_date_stats(tasks)
+    return render_template("project.html", project=proj, lanes=lanes, tasks=tasks,
+                           fmt_date=fmt_date, total_effort=total_effort,
+                           total_duration=total_duration,
+                           project_start=project_start, project_end=project_end)
 
 
 @bp.route("/projects/<int:id>/tasks", methods=["POST"])
@@ -226,9 +304,16 @@ def create_task(id):
     )
     db.session.add(task)
     db.session.commit()
+
+    # A new task may shift successors (e.g. it is referenced as a predecessor
+    # by an existing task, or sits in the chain). Recalculate so the grid is
+    # consistent immediately.
+    recalculate_project(proj.id)
+    db.session.commit()
+
     tasks = Task.query.filter_by(project_id=proj.id).all()
     response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
-    response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
     return response
 
 
@@ -259,7 +344,7 @@ def update_task(task_id):
     new_resp = request.form.get("responsible", task.responsible or "").strip() or None
     new_preds = request.form.get("predecessors", task.predecessors or "").strip() or None
 
-    # Validate using a temporary task without touching the real one
+    # Validate using a temporary task without touching the real one.
     temp = Task(
         project_id=proj.id,
         code=task.code,
@@ -270,7 +355,15 @@ def update_task(task_id):
         responsible=new_resp,
         predecessors=new_preds,
     )
-    errors = validate_task(temp, proj.id, exclude_task_id=task.id)
+
+    # The scheduling rule (start >= max(pred.end)) is only a blocking error
+    # when the user is actively moving the start date earlier. If they merely
+    # change the predecessor set and leave the stored start date alone,
+    # recalculation below pushes the date forward instead of rejecting.
+    start_moved_earlier = bool(new_start) and new_start < task.start_date
+    preds_changed = (new_preds or "") != (task.predecessors or "")
+    check_schedule = start_moved_earlier or not preds_changed
+    errors = validate_task(temp, proj.id, exclude_task_id=task.id, check_schedule=check_schedule)
 
     if errors:
         tasks = Task.query.filter_by(project_id=proj.id).all()
@@ -301,10 +394,14 @@ def update_task(task_id):
     task.duration_days = new_dur
     task.responsible = new_resp
     task.predecessors = new_preds
+
+    # Push successors forward so the whole chain stays consistent.
+    recalculate_project(proj.id)
     db.session.commit()
+
     tasks = Task.query.filter_by(project_id=proj.id).all()
     response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
-    response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
     return response
 
 
@@ -324,9 +421,16 @@ def delete_task(task_id):
 
     db.session.delete(task)
     db.session.commit()
+
+    # Without the removed predecessor, remaining tasks may be pushed forward
+    # or their chain may need to re-settle. Recalculate before rendering so
+    # the grid shows the persisted dates.
+    recalculate_project(proj.id)
+    db.session.commit()
+
     tasks = Task.query.filter_by(project_id=proj.id).all()
     response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
-    response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
     return response
 
 

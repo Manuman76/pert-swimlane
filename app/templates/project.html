@@ -1,14 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }}{% endblock %}
+{% block navbar_right %}
+<a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-light">&larr; Back to projects</a>
+{% endblock %}
 {% block content %}
-<div class="row mb-3">
-  <div class="col">
-    <h2>{{ project.name }}</h2>
-    <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-secondary">&larr; Back to projects</a>
-  </div>
-</div>
+<h2 class="mb-3">{{ project.name }}</h2>
 
 <div class="row g-4">
+
   <div class="col-12">
     <div class="card shadow-sm">
       <div class="card-header d-flex justify-content-between align-items-center">
@@ -75,6 +74,24 @@
     <div class="card shadow-sm">
       <div class="card-header d-flex justify-content-between align-items-center">
         <strong>Tasks</strong>
+        <div class="d-flex gap-2 align-items-center mx-auto" id="project-stats"
+             hx-get="{{ url_for('main.project', id=project.id) }}"
+             hx-trigger="refreshStats from:body"
+             hx-target="#project-stats"
+             hx-select="#project-stats"
+             hx-swap="outerHTML">
+          <div class="border rounded py-1 px-2 d-flex align-items-center gap-2 bg-white">
+            <span class="text-muted">Total effort:</span>
+            <strong>{{ total_effort }} days</strong>
+          </div>
+          <div class="border rounded py-1 px-2 d-flex align-items-center gap-2 bg-white">
+            <span class="text-muted">Duration:</span>
+            <strong>{{ total_duration }} days</strong>
+            {% if project_start and project_end %}
+            <span class="text-muted small">({{ fmt_date(project_start) }} &rarr; {{ fmt_date(project_end) }})</span>
+            {% endif %}
+          </div>
+        </div>
         {% if lanes %}
         <form method="POST" action="{{ url_for('main.create_task', id=project.id) }}"
               hx-post="{{ url_for('main.create_task', id=project.id) }}"
@@ -120,7 +137,12 @@
 
   <div class="col-12">
     <div class="card shadow-sm">
-      <div class="card-header"><strong>Diagram</strong></div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Diagram</strong>
+        <button id="btn-export-png" type="button" disabled
+                class="btn btn-sm btn-outline-secondary"
+                data-filename="{{ project.name }}" title="Download the diagram as a PNG image">Export PNG</button>
+      </div>
       <div class="card-body p-0">
         <div id="diagram-container"
              hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
@@ -145,5 +167,65 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
     evt.detail.isError = false;
   }
 });
+
+// Export the swimlane diagram as a PNG. dom-to-image (unlike html2canvas)
+// renders the inline SVG arrow overlay. The library is loaded lazily on the
+// first export so users who never export do not pay for the download.
+(function () {
+  const btn = document.getElementById('btn-export-png');
+  if (!btn) return;
+  const container = document.getElementById('diagram-container');
+
+  let domToImage;
+  function loadLib() {
+    if (domToImage) return Promise.resolve(domToImage);
+    return new Promise(function (resolve, reject) {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/dom-to-image-more@3.5.0/dist/dom-to-image-more.min.js';
+      s.onload = function () { domToImage = window.domtoimage; resolve(domToImage); };
+      s.onerror = function () { reject(new Error('could not load export library')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function refreshButton() {
+    btn.disabled = !container.querySelector('.diagram-canvas');
+  }
+  refreshButton();
+  // The diagram is swapped in via HTMX (initial load + refreshes), so
+  // re-enable the button whenever a swap lands.
+  document.body.addEventListener('htmx:afterSwap', function () {
+    refreshButton();
+  });
+
+  btn.addEventListener('click', async function () {
+    const canvas = container.querySelector('.diagram-canvas');
+    if (!canvas) return;
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Exporting…';
+    try {
+      const lib = await loadLib();
+      const dataUrl = await lib.toPng(canvas, {
+        width: canvas.offsetWidth,
+        height: canvas.offsetHeight,
+        bgcolor: '#ffffff',
+      });
+      const slug = (btn.dataset.filename || 'diagram')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = (slug || 'diagram') + '.png';
+      a.click();
+    } catch (err) {
+      alert('Export failed: ' + err.message);
+    } finally {
+      btn.textContent = label;
+      refreshButton();
+    }
+  });
+})();
 </script>
 {% endblock %}

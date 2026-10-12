@@ -72,6 +72,8 @@
 
 .task-card {
   position: absolute;
+  display: flex;
+  flex-direction: column;
   background: #fff;
   border: 1px solid #5a9;
   border-radius: 6px;
@@ -81,22 +83,34 @@
 }
 
 .card-header-bar {
+  flex: 0 0 auto; /* keep bar at top, center content below it */
   background: #5a9;
   color: #fff;
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   padding: 2px 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Allow the title to wrap onto multiple lines; the card height
+     (CARD_H in diagram.py) is sized to fit an extra line. */
   display: flex;
   align-items: center;
 }
 
 .card-body {
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 600;
   text-align: center;
+}
+
+/* Diagram task card: center the rows vertically between the title bar and
+   the bottom edge (removes the extra gap below the title). */
+.task-card .card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .card-row {
@@ -106,9 +120,10 @@
 
 .card-cell {
   flex: 1;
-  padding: 2px 1px;
+  padding: 4px 1px;
   border-right: 1px solid #e0e0e0;
   white-space: nowrap;
+  line-height: 1.5;
 }
 
 .card-cell:last-child {
@@ -116,7 +131,10 @@
 }
 
 .card-footer {
-  padding: 1px 4px;
+  min-height: 15px;
+  display: flex;
+  align-items: center;
+  padding: 3px 4px;
   color: #888;
   font-size: 10px;
   white-space: nowrap;

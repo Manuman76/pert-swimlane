@@ -34,6 +34,19 @@ flask run
 
 The app will create `instance/pert.db` in the project directory on first run.
 
+## Running from anywhere on your network
+
+The app binds to `0.0.0.0` by default, so it is reachable from any device on the local network at `http://<your-LAN-IP>:5000/`.
+
+Start it in the background (e.g. from another terminal on this machine):
+
+```bash
+venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 "run:app" &
+# or simply: python run.py  (foreground)
+```
+
+Note: the firewall on this system already allows TCP ports 1025-65535, so port 5000 is open.
+
 ## Seeding the Demo
 
 To create the 8-task demo project matching the reference image:
