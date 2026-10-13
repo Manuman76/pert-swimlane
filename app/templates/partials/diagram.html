@@ -4,6 +4,19 @@
      whole diagram with an UndefinedError. #}
   {% set lane_tops = lane_tops if lane_tops is defined else {} %}
   {% set lane_heights = lane_heights if lane_heights is defined else {} %}
+  {% set task_status = task_status if task_status is defined else {} %}
+  {% set status_styles = status_styles if status_styles is defined else {} %}
+  <div class="diagram-legend">
+    <span class="legend-title">Status:</span>
+    {% for key in ("not_started", "started", "done") %}
+    {% if key in status_styles %}
+    <span class="legend-item" title="{{ status_styles[key].label }} tasks">
+      <span class="legend-swatch" style="background:{{ status_styles[key].bar }}; border-color:{{ status_styles[key].border }};">{{ status_styles[key].icon }}</span>
+      {{ status_styles[key].label }}
+    </span>
+    {% endif %}
+    {% endfor %}
+  </div>
   <div class="diagram-canvas" style="width:{{ canvas_w }}px; height:{{ canvas_h }}px;">
     <!-- Lane bands -->
     {% for lane in lanes %}
@@ -22,8 +35,9 @@
     {% for lane in lanes %}
       {% for task in tasks_by_lane[lane.id] %}
         {% set pos = positions[task.code] %}
-        <div class="task-card" style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ card_w }}px; height:{{ card_h }}px;">
-          <div class="card-header-bar" title="{{ task.name }}">{{ task.name }}</div>
+        {% set st = task_status.get(task.code, status_styles.get("not_started", {})) %}
+        <div class="task-card status-{{ task.status if task.status is defined else "not_started" }}" style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ card_w }}px; height:{{ card_h }}px;">
+          <div class="card-header-bar" style="background:{{ st.bar }}" title="{{ task.name }} ({{ st.label }})">{{ task.name }}</div>
           <div class="card-body">
             <div class="card-row">
               <div class="card-cell">{{ task.code }}</div>
@@ -33,7 +47,10 @@
               <div class="card-cell">{{ task.start_date.strftime("%-d %b %Y") }}</div>
               <div class="card-cell">{{ task.end_date.strftime("%-d %b %Y") }}</div>
             </div>
-            <div class="card-footer">{{ task.responsible or '' }}</div>
+            <div class="card-footer">
+              <span class="card-status" style="color:{{ st.bar }}">{{ st.icon }} {{ st.label }}</span>
+              {% if task.responsible %}<span class="card-responsible">{{ task.responsible }}</span>{% endif %}
+            </div>
           </div>
         </div>
       {% endfor %}

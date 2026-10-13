@@ -9,6 +9,7 @@ A single-user web app for building PERT-style swimlane diagrams. The grid editor
 - HTMX for interactivity
 - Bootstrap 5 for UI
 - SQLite via Flask-SQLAlchemy
+- Gunicorn (optional, for running behind a terminal session)
 - Pure HTML/CSS + inline SVG for the diagram (no chart libraries)
 
 ## Setup
@@ -34,18 +35,25 @@ flask run
 
 The app will create `instance/pert.db` in the project directory on first run.
 
-## Running from anywhere on your network
+## Running from anywhere else on your network
 
-The app binds to `0.0.0.0` by default, so it is reachable from any device on the local network at `http://<your-LAN-IP>:5000/`.
-
-Start it in the background (e.g. from another terminal on this machine):
+The app binds to `0.0.0.0` by default, so it is reachable from any device on
+the local network at `http://<your-LAN-IP>:5000/`. Start it in the background
+(e.g. from another terminal):
 
 ```bash
 venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 2 "run:app" &
 # or simply: python run.py  (foreground)
 ```
 
-Note: the firewall on this system already allows TCP ports 1025-65535, so port 5000 is open.
+If your system firewall blocks non-standard ports, allow TCP 5000 (on Linux:
+`sudo firewall-cmd --add-port=5000/tcp --permanent && sudo firewall-cmd --reload`).
+
+**Cloud dev environments (GitHub Codespaces, etc.):** no extra setup is
+needed. The environment forwards ports for you — in Codespaces, open the
+**Ports** view (or the *Web App* tab), mark port `5000` as public, and open the
+generated `https://…` URL. Keep the server running in a terminal that stays
+open (a normal VS Code terminal works).
 
 ## Seeding the Demo
 

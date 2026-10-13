@@ -36,6 +36,8 @@ class Task(db.Model):
     duration_days = db.Column(db.Integer, nullable=False)
     responsible = db.Column(db.Text, nullable=True)
     predecessors = db.Column(db.Text, nullable=True)
+    started = db.Column(db.Boolean, nullable=False, default=False)
+    done = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -44,6 +46,15 @@ class Task(db.Model):
     @property
     def end_date(self):
         return self.start_date + timedelta(days=self.duration_days)
+
+    @property
+    def status(self):
+        """One of 'not_started', 'started', 'done' (done wins)."""
+        if self.done:
+            return "done"
+        if self.started:
+            return "started"
+        return "not_started"
 
     def predecessor_codes(self):
         if not self.predecessors:

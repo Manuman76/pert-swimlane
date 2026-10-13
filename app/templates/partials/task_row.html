@@ -15,6 +15,7 @@
   {% set t_resp = task.responsible %}
   {% set t_preds = task.predecessors %}
 {% endif %}
+{% set t_status = task.status %}
 <tr id="task-row-{{ task.id }}">
   <td class="font-monospace text-muted">{{ task.code }}</td>
   <td>
@@ -45,6 +46,14 @@
         {% for e in task_errors %}<div>{{ e }}</div>{% endfor %}
       </div>
     {% endif %}
+  </td>
+  <td>
+    <select form="task-form-{{ task.id }}" name="status" class="form-select form-select-sm"
+            onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+      <option value="not_started" {% if t_status == "not_started" %}selected{% endif %}>Not started</option>
+      <option value="started" {% if t_status == "started" %}selected{% endif %}>Started</option>
+      <option value="done" {% if t_status == "done" %}selected{% endif %}>Done</option>
+    </select>
   </td>
   <td>
     <form id="task-form-{{ task.id }}" method="POST" action="{{ url_for('main.update_task', task_id=task.id) }}"

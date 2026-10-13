@@ -13,6 +13,13 @@ RIGHT_MARGIN = 40
 # Vertical breathing room above/below the cards inside a lane.
 V_PAD = (LANE_H - CARD_H) // 2
 
+# Status styling: each of the three task states gets its own color.
+STATUS_STYLES = {
+    "not_started": {"border": "#6c757d", "bar": "#6c757d", "label": "Not started", "icon": "\u25cb"},
+    "started": {"border": "#f39c12", "bar": "#f39c12", "label": "Started", "icon": "\u25d1"},
+    "done": {"border": "#27ae60", "bar": "#27ae60", "label": "Done", "icon": "\u2713"},
+}
+
 
 def build_diagram(lanes, tasks):
     """Render swimlane diagram as HTML+SVG partial."""
@@ -109,6 +116,9 @@ def build_diagram(lanes, tasks):
     for p in positions.values():
         max_width = max(max_width, p["x"] + CARD_W + RIGHT_MARGIN)
     canvas_h = y_cursor + 20
+
+    # Status colors per task
+    task_status = {t.code: STATUS_STYLES[t.status] for t in tasks}
 
     # Build arrows
     arrows = []
@@ -225,4 +235,6 @@ def build_diagram(lanes, tasks):
         card_w=CARD_W,
         card_h=CARD_H,
         gap_x=GAP_X,
+        task_status=task_status,
+        status_styles=STATUS_STYLES,
     )

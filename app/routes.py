@@ -343,6 +343,12 @@ def update_task(task_id):
 
     new_resp = request.form.get("responsible", task.responsible or "").strip() or None
     new_preds = request.form.get("predecessors", task.predecessors or "").strip() or None
+    # Status dropdown: 'not_started' | 'started' | 'done'. If absent, keep current state.
+    status_value = request.form.get("status")
+    if status_value not in ("not_started", "started", "done"):
+        status_value = task.status
+    started_by_status = status_value in ("started", "done")
+    done_by_status = status_value == "done"
 
     # Validate using a temporary task without touching the real one.
     temp = Task(
@@ -354,6 +360,8 @@ def update_task(task_id):
         duration_days=new_dur,
         responsible=new_resp,
         predecessors=new_preds,
+        started=started_by_status,
+        done=done_by_status,
     )
 
     # The scheduling rule (start >= max(pred.end)) is only a blocking error
@@ -394,6 +402,8 @@ def update_task(task_id):
     task.duration_days = new_dur
     task.responsible = new_resp
     task.predecessors = new_preds
+    task.started = started_by_status
+    task.done = done_by_status
 
     # Push successors forward so the whole chain stays consistent.
     recalculate_project(proj.id)

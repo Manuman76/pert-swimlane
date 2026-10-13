@@ -136,6 +136,72 @@ def test_validation_scheduling(client, app):
         assert resp.status_code == 422
 
 
+def test_status_dropdown(client, app):
+    """The status dropdown gives tasks three states, and each state is
+    rendered with its own color in the diagram."""
+    from app.diagram import build_diagram, STATUS_STYLES
+
+    with app.app_context():
+        proj = _create_project("PStatus")
+        lane = _create_lane(proj, "L")
+        task = Task(project_id=proj.id, code="001", lane_id=lane.id, name="T1",
+                    start_date=date(2017, 6, 1), duration_days=3)
+        db.session.add(task)
+        db.session.commit()
+
+        assert task.status == "not_started"
+
+        # Set "started"
+        resp = client.post(f"/tasks/{task.id}/update", data={
+            "name": "T1", "lane_id": lane.id, "start_date": "1 Jun 2017",
+            "duration_days": "3", "status": "started",
+        })
+        assert resp.status_code == 200
+        task = Task.query.get(task.id)
+        assert task.started is True and task.done is False
+        assert task.status == "started"
+
+        # Set "done"
+        resp = client.post(f"/tasks/{task.id}/update", data={
+            "name": "T1", "lane_id": lane.id, "start_date": "1 Jun 2017",
+            "duration_days": "3", "status": "done",
+        })
+        assert resp.status_code == 200
+        task = Task.query.get(task.id)
+        assert task.started is True and task.done is True
+        assert task.status == "done"
+
+        # Reset to "not_started"
+        resp = client.post(f"/tasks/{task.id}/update", data={
+            "name": "T1", "lane_id": lane.id, "start_date": "1 Jun 2017",
+            "duration_days": "3", "status": "not_started",
+        })
+        assert resp.status_code == 200
+        task = Task.query.get(task.id)
+        assert task.started is False and task.done is False
+        assert task.status == "not_started"
+
+        # Invalid or missing status keeps the current state
+        resp = client.post(f"/tasks/{task.id}/update", data={
+            "name": "T1", "lane_id": lane.id, "start_date": "1 Jun 2017",
+            "duration_days": "3", "status": "bogus",
+        })
+        assert resp.status_code == 200
+        task = Task.query.get(task.id)
+        assert task.status == "not_started"
+
+        # Diagram colors: each state gets its own distinct border/bar color
+        assert STATUS_STYLES["not_started"]["bar"] != STATUS_STYLES["started"]["bar"]
+        assert STATUS_STYLES["started"]["bar"] != STATUS_STYLES["done"]["bar"]
+
+        # Done tasks render with the done-state color in the diagram
+        proj.tasks[0].done = True
+        db.session.commit()
+        html = build_diagram([lane], list(proj.tasks))
+        assert 'status-done' in html
+        assert STATUS_STYLES["done"]["bar"] in html
+
+
 def test_layout_flow_to_the_right(app):
     """Every task must be drawn strictly to the right of all of its predecessors,
     and a lane's tasks must be indented further right than its predecessor lane's tasks."""
@@ -170,7 +236,7 @@ def test_layout_flow_to_the_right(app):
 
         # Card cards are rendered lane-by-lane in (start_date, code) order.
         cards = [(float(x), float(y)) for x, y
-                 in re.findall(r'class="task-card" style="left:([\d.]+)px; top:([\d.]+)px;', html)]
+                 in re.findall(r'class="task-card[^"]*" style="left:([\d.]+)px; top:([\d.]+)px;', html)]
         order = []
         for lane in lanes:
             lane_tasks = sorted((t for t in tasks.values() if t.lane_id == lane.id),
@@ -218,7 +284,7 @@ def test_layout_siblings_stack_vertically(app):
         cards = {}
         for code, (x, y) in zip(
             [c for c, _, _, _, _, _ in data],
-            re.findall(r'class="task-card" style="left:([\d.]+)px; top:([\d.]+)px;', html),
+            re.findall(r'class="task-card[^"]*" style="left:([\d.]+)px; top:([\d.]+)px;', html),
         ):
             cards[code] = (float(x), float(y))
 

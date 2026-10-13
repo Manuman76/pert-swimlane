@@ -1,4 +1,5 @@
 from flask import Flask
+from sqlalchemy import text
 from .db import db
 
 
@@ -17,5 +18,19 @@ def create_app(config=None):
 
     with app.app_context():
         db.create_all()
+        _migrate_schema()
 
     return app
+
+
+def _migrate_schema():
+    """Add columns that db.create_all() cannot add to existing tables."""
+    if db.engine.dialect.name != "sqlite":
+        return
+    existing = {r[1] for r in db.session.execute(text("PRAGMA table_info(tasks)"))}
+    for col in ("started", "done"):
+        if col not in existing:
+            db.session.execute(
+                text(f"ALTER TABLE tasks ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT 0")
+            )
+    db.session.commit()

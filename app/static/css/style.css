@@ -5,6 +5,40 @@
   border: 1px solid #ddd;
 }
 
+.diagram-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #ddd;
+  background: #fff;
+  font-size: 12px;
+  color: #444;
+}
+
+.legend-title {
+  font-weight: 600;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 16px;
+  border: 2px solid;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+}
+
 .diagram-canvas {
   position: relative;
   background: #fafafa;
@@ -75,12 +109,17 @@
   display: flex;
   flex-direction: column;
   background: #fff;
-  border: 1px solid #5a9;
+  border: 2px solid;
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   overflow: hidden;
   z-index: 5;
 }
+
+/* Per-status card colors (set inline; see STATUS_STYLES in diagram.py). */
+.task-card.status-not_started { border-color: #6c757d; }
+.task-card.status-started    { border-color: #f39c12; }
+.task-card.status-done        { border-color: #27ae60; }
 
 .card-header-bar {
   flex: 0 0 auto; /* keep bar at top, center content below it */
@@ -131,13 +170,25 @@
 }
 
 .card-footer {
+  flex: 0 0 auto;
   min-height: 15px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 4px;
   padding: 3px 4px;
   color: #888;
   font-size: 10px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-status {
+  font-weight: 700;
+}
+
+.card-responsible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
