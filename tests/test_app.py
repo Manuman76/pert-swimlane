@@ -339,3 +339,178 @@ def test_layout_coordinates(app):
         html = build_diagram([lane], [task])
         assert "task-card" in html
         assert "001" in html
+
+
+def test_move_lane_up(client, app):
+    with app.app_context():
+        proj = _create_project("P6")
+        l1 = _create_lane(proj, "A", 1)
+        l2 = _create_lane(proj, "B", 2)
+        l3 = _create_lane(proj, "C", 3)
+
+        resp = client.post(f"/projects/{proj.id}/lanes", data={"lane_id": str(l2.id), "action": "move_up"})
+        assert resp.status_code == 302
+
+        order = [l.name for l in Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()]
+        assert order == ["B", "A", "C"]
+
+
+def test_move_lane_down(client, app):
+    with app.app_context():
+        proj = _create_project("P7")
+        l1 = _create_lane(proj, "A", 1)
+        l2 = _create_lane(proj, "B", 2)
+        l3 = _create_lane(proj, "C", 3)
+
+        resp = client.post(f"/projects/{proj.id}/lanes", data={"lane_id": str(l2.id), "action": "move_down"})
+        assert resp.status_code == 302
+
+        order = [l.name for l in Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()]
+        assert order == ["A", "C", "B"]
+
+
+def test_move_lane_top_and_bottom_noops(client, app):
+    with app.app_context():
+        proj = _create_project("P8")
+        l1 = _create_lane(proj, "A", 1)
+        l2 = _create_lane(proj, "B", 2)
+
+        # Top lane: move_up is a no-op.
+        resp = client.post(f"/projects/{proj.id}/lanes", data={"lane_id": str(l1.id), "action": "move_up"})
+        assert resp.status_code == 302
+        # Bottom lane: move_down is a no-op.
+        resp = client.post(f"/projects/{proj.id}/lanes", data={"lane_id": str(l2.id), "action": "move_down"})
+        assert resp.status_code == 302
+
+        order = [l.name for l in Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()]
+        assert order == ["A", "B"]
+
+
+def test_backward_edge_above_right_uses_direct_route(app):
+    """An edge whose destination lane sits above the source lane, but whose
+    destination is still strictly to the right, must be drawn as a direct
+    elbow — not looped around the outer right margin."""
+    with app.app_context():
+        import re
+        from app.diagram import build_diagram, CARD_W, GAP_X, LANE_LABEL_W
+
+        proj = _create_project("P9")
+        # The predecessor's lane ends up *below* the successor's lane (as if
+        # the user had just moved it down), but the successor is one column to
+        # the right.
+        upper = _create_lane(proj, "Upper", sort_order=1)
+        lower = _create_lane(proj, "Lower", sort_order=2)
+        data = [
+            ("001", lower.id, "First", date(2017, 6, 1), 3, ""),
+            ("002", upper.id, "Next", date(2017, 6, 4), 3, "001"),
+        ]
+        for code, lane_id, name, start, dur, preds in data:
+            db.session.add(Task(project_id=proj.id, code=code, lane_id=lane_id,
+                                name=name, start_date=start, duration_days=dur,
+                                predecessors=preds or None))
+        db.session.commit()
+
+        lanes = [upper, lower]
+        tasks = [Task.query.filter_by(project_id=proj.id, code=c).one()
+                 for c, _, _, _, _, _ in data]
+        html = build_diagram(lanes, tasks)
+
+        paths = re.findall(r'<path d="([^"]+)"', html)
+        # The direct route renders like any normal dependency (no red dashed
+        # out-of-order styling), because it does not loop around the margin.
+        assert 'stroke="#c0392b"' not in html
+        # It stays within the column span of the two cards.
+        sx = LANE_LABEL_W + GAP_X
+        dx = sx + CARD_W + GAP_X
+        (path,) = [p for p in paths if p.startswith("M ")]
+        xs = [float(v) for v in re.findall(r"[ML] ([\d.]+) [\d.]+", path)]
+        assert min(xs) >= sx, path
+        assert max(xs) <= dx + CARD_W, path
+        # Right out of the source, up, and into the destination's left edge.
+        assert path.startswith(f"M {sx + CARD_W} "), path
+        assert re.search(rf"L {dx} [\d.]+$", path), path
+
+
+def test_jira_csv_export_columns_and_links(client, app):
+    """The export must be a Jira-importable CSV: a Summary header, stable
+    Issue IDs, and predecessors referenced through an 'is blocked by' column."""
+    import csv as _csv
+    import io
+
+    with app.app_context():
+        proj = _create_project("P10")
+        l1 = _create_lane(proj, "Backend", 1)
+        l2 = _create_lane(proj, "Frontend", 2)
+        data = [
+            ("001", l1.id, "Design API", date(2017, 6, 1), 3, "", "Alice"),
+            ("002", l2.id, "Build UI", date(2017, 6, 4), 5, "001", "Bob"),
+            ("003", l2.id, "Ship it", date(2017, 6, 9), 2, "001,002", ""),
+        ]
+        for code, lane_id, name, start, dur, preds, resp in data:
+            db.session.add(Task(project_id=proj.id, code=code, lane_id=lane_id,
+                                name=name, start_date=start, duration_days=dur,
+                                predecessors=preds or None,
+                                responsible=resp or None))
+        db.session.commit()
+        pid = proj.id
+
+    resp = client.get(f"/projects/{pid}/export/jira.csv")
+    assert resp.status_code == 200
+    assert resp.headers["Content-Type"].startswith("text/csv")
+    assert "attachment" in resp.headers["Content-Disposition"]
+    assert "jira-import.csv" in resp.headers["Content-Disposition"]
+
+    rows = list(_csv.DictReader(io.StringIO(resp.get_data(as_text=True))))
+    assert [r["Summary"] for r in rows] == ["Design API", "Build UI", "Ship it"]
+
+    # Summary is required by Jira; Issue ID makes link references resolvable.
+    header = resp.get_data(as_text=True).splitlines()[0]
+    assert "Summary" in header and "Issue ID" in header
+
+    # Lanes map to Components, people to Assignees.
+    assert [r["Component"] for r in rows] == ["Backend", "Frontend", "Frontend"]
+    assert rows[0]["Assignee"] == "Alice"
+
+    # Dependencies: each task lists its own predecessors under 'is blocked by',
+    # so nothing is linked to a row that is not part of the file.
+    assert rows[0]["is blocked by"] == ""
+    assert rows[1]["is blocked by"] == "001"
+    assert rows[2]["is blocked by"] == "001, 002"
+
+
+def test_jira_csv_export_ignores_unknown_predecessors(client, app):
+    """A predecessor that is not part of the export must not be referenced."""
+    import csv as _csv
+    import io
+
+    with app.app_context():
+        proj = _create_project("P11")
+        lane = _create_lane(proj, "Only", 1)
+        db.session.add(Task(project_id=proj.id, code="001", lane_id=lane.id,
+                            name="Lonely", start_date=date(2017, 6, 1),
+                            duration_days=2, predecessors="999"))
+        db.session.commit()
+        pid = proj.id
+
+    resp = client.get(f"/projects/{pid}/export/jira.csv")
+    rows = list(_csv.DictReader(io.StringIO(resp.get_data(as_text=True))))
+    assert rows[0]["is blocked by"] == ""
+
+
+def test_jira_csv_export_escapes_commas_in_names(client, app):
+    """Task names containing commas/quotes must round-trip through CSV."""
+    import csv as _csv
+    import io
+
+    with app.app_context():
+        proj = _create_project("P12")
+        lane = _create_lane(proj, "Only", 1)
+        db.session.add(Task(project_id=proj.id, code="001", lane_id=lane.id,
+                            name='Fix "widget", fast',
+                            start_date=date(2017, 6, 1), duration_days=1))
+        db.session.commit()
+        pid = proj.id
+
+    resp = client.get(f"/projects/{pid}/export/jira.csv")
+    rows = list(_csv.DictReader(io.StringIO(resp.get_data(as_text=True))))
+    assert rows[0]["Summary"] == 'Fix "widget", fast'

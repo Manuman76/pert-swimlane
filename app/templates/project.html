@@ -4,7 +4,12 @@
 <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-light">&larr; Back to projects</a>
 {% endblock %}
 {% block content %}
-<h2 class="mb-3">{{ project.name }}</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">{{ project.name }}</h2>
+  <a href="{{ url_for('main.export_jira_csv', id=project.id) }}"
+     class="btn btn-sm btn-outline-secondary"
+     title="Download the tasks as a CSV file you can import into Jira">Export to Jira (CSV)</a>
+</div>
 
 <div class="row g-4">
 
@@ -142,7 +147,7 @@
         <strong>Diagram</strong>
         <button id="btn-export-png" type="button" disabled
                 class="btn btn-sm btn-outline-secondary"
-                data-filename="{{ project.name }}" title="Download the diagram as a PNG image">Export PNG</button>
+                data-filename="{{ project.name }}" title="Download the diagram as a PNG image">Export Image</button>
       </div>
       <div class="card-body p-0">
         <div id="diagram-container"

@@ -126,6 +126,28 @@ def delete_project(id):
     return redirect(url_for("main.index"))
 
 
+def _swap_lane_orders(a, b):
+    """Swap the sort_order values of two lanes in the same project.
+
+    A direct swap — whether via tuple assignment or a single CASE UPDATE —
+    violates the UNIQUE(project_id, sort_order) constraint: SQLite applies
+    row updates one at a time and checks the constraint against the table as
+    it stands, so the first row ends up with a value the other row still
+    holds. Route `a` through a guaranteed-free value, flushing after each
+    step so one UPDATE runs per step, then place `b`, then bring `a` home.
+    """
+    va, vb = a.sort_order, b.sort_order
+    if va == vb:
+        return
+    free = db.session.query(db.func.max(Lane.sort_order)).filter_by(project_id=a.project_id).scalar() + 1
+    a.sort_order = free
+    db.session.flush()
+    b.sort_order = va
+    db.session.flush()
+    a.sort_order = vb
+    db.session.commit()
+
+
 # Lanes
 @bp.route("/projects/<int:id>/lanes", methods=["POST"])
 def manage_lanes(id):
@@ -152,15 +174,13 @@ def manage_lanes(id):
         lane = Lane.query.filter_by(id=lane_id, project_id=proj.id).first_or_404()
         above = Lane.query.filter(Lane.project_id == proj.id, Lane.sort_order < lane.sort_order).order_by(Lane.sort_order.desc()).first()
         if above:
-            lane.sort_order, above.sort_order = above.sort_order, lane.sort_order
-            db.session.commit()
+            _swap_lane_orders(lane, above)
     elif action == "move_down":
         lane_id = request.form.get("lane_id", type=int)
         lane = Lane.query.filter_by(id=lane_id, project_id=proj.id).first_or_404()
         below = Lane.query.filter(Lane.project_id == proj.id, Lane.sort_order > lane.sort_order).order_by(Lane.sort_order).first()
         if below:
-            lane.sort_order, below.sort_order = below.sort_order, lane.sort_order
-            db.session.commit()
+            _swap_lane_orders(lane, below)
     elif action == "delete":
         lane_id = request.form.get("lane_id", type=int)
         lane = Lane.query.filter_by(id=lane_id, project_id=proj.id).first_or_404()
@@ -441,6 +461,27 @@ def delete_task(task_id):
     tasks = Task.query.filter_by(project_id=proj.id).all()
     response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
     response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
+    return response
+
+
+# Export
+# ---------------------------------------------------------------------------
+
+@bp.route("/projects/<int:id>/export/jira.csv")
+def export_jira_csv(id):
+    """Download the project's tasks as a CSV that Jira's importer accepts."""
+    from .jira_export import export_project_csv, export_filename
+
+    proj = Project.query.get_or_404(id)
+    lanes = Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()
+    tasks = Task.query.filter_by(project_id=proj.id).all()
+    csv_text = export_project_csv(proj, lanes, tasks)
+
+    response = make_response(csv_text)
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="{export_filename(proj)}"'
+    )
     return response
 
 

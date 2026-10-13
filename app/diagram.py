@@ -139,6 +139,16 @@ def build_diagram(lanes, tasks):
         v_offsets[key] = off + 8
         return off
 
+    def v_seg_clash(x, y1, y2):
+        """True if a vertical segment at x between y1 and y2 crosses a card."""
+        lo, hi = min(y1, y2), max(y1, y2)
+        for p in positions.values():
+            if not (p["x"] < x < p["x"] + CARD_W):
+                continue
+            if lo < p["y"] + CARD_H and hi > p["y"]:
+                return True
+        return False
+
     for src_code, dst_code in edges:
         if src_code not in positions or dst_code not in positions:
             continue
@@ -150,9 +160,18 @@ def build_diagram(lanes, tasks):
         d_lane = dst["lane_idx"]
 
         backward = (d_lane < s_lane) or (d_lane == s_lane and dx < sx + CARD_W)
+        # A backward edge whose destination still sits strictly to the right can
+        # be drawn as a direct elbow instead of looping around the outer margin.
+        backward_direct = d_lane < s_lane and dx > sx + CARD_W
 
         # Anchor points
-        if backward:
+        if backward_direct:
+            # leave right, enter left (same as a forward edge)
+            ax1 = sx + CARD_W
+            ay1 = sy + CARD_H / 2
+            ax2 = dx
+            ay2 = dy + CARD_H / 2
+        elif backward:
             # leave from bottom, enter from top
             ax1 = sx + CARD_W / 2
             ay1 = sy + CARD_H
@@ -197,9 +216,31 @@ def build_diagram(lanes, tasks):
             if mid_x is None:
                 mid_x = candidates[-1] + get_v_offset(candidates[-1], ay1, ay2)
             path = f"M {ax1} {ay1} L {mid_x} {ay1} L {mid_x} {ay2} L {ax2} {ay2}"
+        elif backward_direct:
+            # Destination is upper-right: a direct elbow (right -> up -> left) is
+            # clean enough to render like any normal dependency.
+            stub = 12
+            gap = dx - (sx + CARD_W)
+            cands = []
+            if gap >= 2 * stub:
+                cands.append(sx + CARD_W + gap / 2)
+            if gap > stub:
+                cands.append(sx + CARD_W + stub)
+                cands.append(dx - stub)
+            if not cands:
+                cands.append((sx + CARD_W + dx) / 2)
+            mid_x = None
+            for cand in cands:
+                if not v_seg_clash(cand, ay1, ay2):
+                    mid_x = cand
+                    break
+            if mid_x is None:
+                mid_x = cands[-1] + get_v_offset(cands[-1], ay1, ay2)
+            path = f"M {ax1} {ay1} L {mid_x} {ay1} L {mid_x} {ay2} L {ax2} {ay2}"
         else:
-            # Backward: task sits left/above; route around the outer right margin
-            # and enter the destination from its top.
+            # Backward: task sits left/above; the route has to loop around the
+            # outer right margin and enter the destination from its top. The red
+            # dashed styling flags it as an out-of-order dependency.
             stroke = "#c0392b"
             stroke_dash = "4,3"
             marker = "url(#arrowhead-red)"
