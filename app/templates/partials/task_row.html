@@ -40,7 +40,7 @@
   </td>
   <td>
     <input form="task-form-{{ task.id }}" type="text" name="predecessors" value="{{ t_preds or '' }}" class="form-control form-control-sm {% if task_errors %}is-invalid{% endif %}"
-           placeholder="001, 002" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+           onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
     {% if task_errors %}
       <div class="invalid-tooltip d-block position-relative mt-1">
         {% for e in task_errors %}<div>{{ e }}</div>{% endfor %}
