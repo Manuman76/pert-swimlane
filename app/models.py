@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from .db import db
+from .workdays import add_workdays
 
 
 class Project(db.Model):
@@ -45,7 +46,16 @@ class Task(db.Model):
 
     @property
     def end_date(self):
-        return self.start_date + timedelta(days=self.duration_days)
+        """Exclusive finish: the first day a successor may start.
+
+        `duration_days` is counted in **working days** (5-day week, Saturday
+        and Sunday skipped), so the end date is always a Monday-Friday date.
+        A 3-day task starting Thursday 1 Jun ends Tue 6 Jun: it is worked on
+        Thu 1, Fri 2 and Mon 5, and the weekend is not task time.
+        """
+        if not self.start_date:
+            return None
+        return add_workdays(self.start_date, self.duration_days or 0)
 
     @property
     def status(self):

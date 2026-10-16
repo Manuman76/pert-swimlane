@@ -2,6 +2,7 @@ from datetime import date
 from app import create_app
 from app.db import db
 from app.models import Project, Lane, Task
+from app.routes import recalculate_project
 
 
 def seed():
@@ -55,6 +56,12 @@ def seed():
             )
             db.session.add(task)
             tasks.append(task)
+        db.session.commit()
+
+        # Settle the schedule: 004/006 are entered on a Saturday and the
+        # calendar is a 5-day week, so their dates (and everything downstream)
+        # roll onto the next working days before the demo is shown.
+        recalculate_project(proj.id)
         db.session.commit()
 
         print(f"Seeded project '{proj.name}' with {len(lanes)} lanes and {len(tasks)} tasks.")

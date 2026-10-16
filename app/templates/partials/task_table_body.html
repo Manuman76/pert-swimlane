@@ -3,5 +3,5 @@
   {% set draft = drafts.get(task.id) if drafts else None %}
   {% include "partials/task_row.html" %}
 {% else %}
-<tr><td colspan="9" class="text-muted text-center py-3">No tasks yet. Click "Add Task" to begin.</td></tr>
+<tr class="empty-row"><td colspan="10" class="text-muted text-center py-2">No tasks yet. Click "+ Add task" to begin.</td></tr>
 {% endfor %}

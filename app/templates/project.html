@@ -15,112 +15,51 @@
 
   <div class="col-12">
     <div class="card shadow-sm">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <strong>Lanes</strong>
-        <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
-              hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
-              hx-target="body" hx-swap="outerHTML"
-              class="d-inline-flex gap-2">
-          <input type="hidden" name="action" value="add">
-          <input type="text" name="name" class="form-control form-control-sm" placeholder="New lane name" required style="width:200px">
-          <button class="btn btn-sm btn-primary" type="submit">Add Lane</button>
-        </form>
-      </div>
-      <div class="card-body">
-        {% if lanes %}
-        <div class="d-flex flex-wrap gap-2">
-          {% for lane in lanes %}
-          <div class="border rounded p-2 d-flex align-items-center gap-2 bg-white">
-            <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
-                  hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
-                  hx-target="body" hx-swap="outerHTML"
-                  class="d-inline-flex gap-1 align-items-center">
-              <input type="hidden" name="lane_id" value="{{ lane.id }}">
-              <input type="hidden" name="action" value="rename">
-              <input type="text" name="name" class="form-control form-control-sm" value="{{ lane.name }}" required style="width:140px">
-              <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
-            </form>
-            <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
-                  hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
-                  hx-target="body" hx-swap="outerHTML"
-                  class="d-inline">
-              <input type="hidden" name="lane_id" value="{{ lane.id }}">
-              <input type="hidden" name="action" value="move_up">
-              <button class="btn btn-sm btn-outline-secondary" type="submit" {% if loop.first %}disabled{% endif %}>&uarr;</button>
-            </form>
-            <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
-                  hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
-                  hx-target="body" hx-swap="outerHTML"
-                  class="d-inline">
-              <input type="hidden" name="lane_id" value="{{ lane.id }}">
-              <input type="hidden" name="action" value="move_down">
-              <button class="btn btn-sm btn-outline-secondary" type="submit" {% if loop.last %}disabled{% endif %}>&darr;</button>
-            </form>
-            <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
-                  hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
-                  hx-target="body" hx-swap="outerHTML"
-                  class="d-inline"
-                  onsubmit="return confirm('Delete lane &quot;{{ lane.name }}&quot;? Tasks will be moved to the first remaining lane.')">
-              <input type="hidden" name="lane_id" value="{{ lane.id }}">
-              <input type="hidden" name="action" value="delete">
-              <button class="btn btn-sm btn-outline-danger" type="submit">&times;</button>
-            </form>
-          </div>
-          {% endfor %}
-        </div>
-        {% else %}
-        <p class="text-muted mb-0">No lanes yet. Add at least one lane before creating tasks.</p>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-
-  <div class="col-12">
-    <div class="card shadow-sm">
-      <div class="card-header d-flex justify-content-between align-items-center">
+      <div class="card-header panel-header d-flex justify-content-between align-items-center gap-3">
         <strong>Tasks</strong>
-        <div class="d-flex gap-2 align-items-center mx-auto" id="project-stats"
+        {# One quiet line instead of boxed pills: the figures stay, the frames go.
+           wd = working days (5-day week, Sat/Sun skipped) - see the tooltip. #}
+        <div class="d-flex align-items-center justify-content-center gap-2 flex-grow-1 text-muted small tasks-stats"
+             id="project-stats" title="Counts are working days: Saturday and Sunday are not counted"
              hx-get="{{ url_for('main.project', id=project.id) }}"
              hx-trigger="refreshStats from:body"
              hx-target="#project-stats"
              hx-select="#project-stats"
              hx-swap="outerHTML">
-          <div class="border rounded py-1 px-2 d-flex align-items-center gap-2 bg-white">
-            <span class="text-muted">Total effort:</span>
-            <strong>{{ total_effort }} days</strong>
-          </div>
-          <div class="border rounded py-1 px-2 d-flex align-items-center gap-2 bg-white">
-            <span class="text-muted">Duration:</span>
-            <strong>{{ total_duration }} days</strong>
-            {% if project_start and project_end %}
-            <span class="text-muted small">({{ fmt_date(project_start) }} &rarr; {{ fmt_date(project_end) }})</span>
-            {% endif %}
-          </div>
+          <span>Effort <b>{{ total_effort }} wd</b></span>
+          <span aria-hidden="true">&middot;</span>
+          <span>Duration <b>{{ total_duration }} wd</b></span>
+          {% if project_start and project_end %}
+          <span aria-hidden="true">&middot;</span>
+          <span>{{ fmt_date(project_start) }} &rarr; {{ fmt_date(project_end) }}</span>
+          {% endif %}
         </div>
-        {% if lanes %}
+        {# No lanes yet is fine: the first task seeds a "Lane 1", and the Lane
+           cell in the grid renames or creates lanes from then on. #}
         <form method="POST" action="{{ url_for('main.create_task', id=project.id) }}"
               hx-post="{{ url_for('main.create_task', id=project.id) }}"
               hx-target="#task-table-body"
               hx-swap="innerHTML">
-          <button class="btn btn-sm btn-success" type="submit">+ Add Task</button>
+          <button class="btn btn-sm btn-success btn-add-task" type="submit">+ Add task</button>
         </form>
-        {% endif %}
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
-          <table class="table table-bordered table-hover mb-0 align-middle" id="task-table">
-            <thead class="table-light">
+          {# Low-chrome grid: hairline row separators only, and the inputs are
+             borderless until hover/focus (see the "Task grid" rules in style.css). #}
+          <table class="table table-hover mb-0 align-middle" id="task-table">
+            <thead>
               <tr>
-                <th style="width:60px">ID</th>
+                <th style="width:52px">ID</th>
                 <th>Task name</th>
-                <th style="width:160px">Lane</th>
-                <th style="width:130px">Start date</th>
-                <th style="width:90px">Duration</th>
-                <th style="width:130px">End date</th>
+                <th style="width:170px" title="Pick an existing swimlane from the list, or type a new name - saving creates it (and an unused lane disappears again). Hovering the row reveals arrows that move this lane's swimlane up or down.">Lane</th>
+                <th style="width:118px" title="Working day - a date entered on a weekend moves to the next Monday">Start</th>
+                <th style="width:74px" title="Number of working days (Monday to Friday)">Days</th>
+                <th style="width:118px" title="First day of the next task; Saturday and Sunday are skipped">End</th>
                 <th>Responsible</th>
-                <th style="width:140px">Predecessors</th>
-                <th style="width:140px">Status</th>
-                <th style="width:80px"></th>
+                <th style="width:130px">Predecessors</th>
+                <th style="width:126px">Status</th>
+                <th style="width:36px"><span class="visually-hidden">Actions</span></th>
               </tr>
             </thead>
             <tbody id="task-table-body"
@@ -143,7 +82,7 @@
 
   <div class="col-12">
     <div class="card shadow-sm">
-      <div class="card-header d-flex justify-content-between align-items-center">
+      <div class="card-header panel-header d-flex justify-content-between align-items-center">
         <strong>Diagram</strong>
         <button id="btn-export-png" type="button" disabled
                 class="btn btn-sm btn-outline-secondary"

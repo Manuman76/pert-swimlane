@@ -3,6 +3,7 @@
 {% if draft %}
   {% set t_name = draft.name %}
   {% set t_lane_id = draft.lane_id %}
+  {% set t_lane_name = draft.lane_name %}
   {% set t_start = draft.start_date %}
   {% set t_dur = draft.duration_days %}
   {% set t_resp = draft.responsible %}
@@ -10,39 +11,87 @@
 {% else %}
   {% set t_name = task.name %}
   {% set t_lane_id = task.lane_id %}
+  {% set t_lane_name = none %}
   {% set t_start = task.start_date %}
   {% set t_dur = task.duration_days %}
   {% set t_resp = task.responsible %}
   {% set t_preds = task.predecessors %}
 {% endif %}
+{# A rejected edit keeps the typed lane name on screen; otherwise the lane comes
+   from the project's lane list. #}
+{% if not t_lane_name %}
+  {% set t_lane_name = lanes | selectattr('id', 'equalto', t_lane_id) | map(attribute='name') | first %}
+{% endif %}
+{# Position of this task's lane in swimlane order - drives the order arrows. #}
+{% set lane_ids = lanes | map(attribute='id') | list %}
+{% set t_lane_pos = lane_ids.index(t_lane_id) if t_lane_id in lane_ids else none %}
 {% set t_status = task.status %}
-<tr id="task-row-{{ task.id }}">
-  <td class="font-monospace text-muted">{{ task.code }}</td>
+{# Every cell edits the same hidden form below; the controls themselves are
+   styled borderless by the "Task grid" rules in style.css, so a row reads as
+   text until it is hovered or focused. Keep the markup height-neutral: one
+   control per cell, nothing stacked under it (the error note and the tiny
+   lane-order arrows beside their field are the exceptions). #}
+<tr id="task-row-{{ task.id }}" class="status-{{ t_status }}{% if task_errors %} has-errors{% endif %}">
+  <td class="task-code">{{ task.code }}</td>
   <td>
     <input form="task-form-{{ task.id }}" type="text" name="name" value="{{ t_name }}" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
   </td>
   <td>
-    <select form="task-form-{{ task.id }}" name="lane_id" class="form-select form-select-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
-      {% for lane in lanes %}
-      <option value="{{ lane.id }}" {% if t_lane_id == lane.id %}selected{% endif %}>{{ lane.name }}</option>
-      {% endfor %}
-    </select>
+    <div class="lane-cell">
+      {# Lane combo: pick an existing swimlane from the list or type a new name -
+         saving creates that lane. Datalist lives per row because the whole table
+         body is swapped on every save, so a newly created lane is offered by the
+         other rows straight away. #}
+      <input form="task-form-{{ task.id }}" type="text" name="lane_name" value="{{ t_lane_name or '' }}"
+             list="lane-options-{{ task.id }}" placeholder="New or existing lane"
+             class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+      <datalist id="lane-options-{{ task.id }}">
+        {% for lane in lanes %}
+        <option value="{{ lane.name }}"></option>
+        {% endfor %}
+      </datalist>
+      {# Swimlane order lives here now that the lane panel is gone: the arrows
+         move this task's whole lane one position, and are disabled when the
+         lane is already first / last. #}
+      {% if t_lane_pos is not none %}
+      <span class="lane-move">
+        <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
+              hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+              hx-target="#task-table-body" hx-swap="innerHTML">
+          <input type="hidden" name="lane_id" value="{{ t_lane_id }}">
+          <input type="hidden" name="action" value="move_up">
+          <input type="hidden" name="partial" value="grid">
+          <button class="btn-lane-move" type="submit" title="Move lane &quot;{{ t_lane_name }}&quot; up one swimlane"
+                  {% if t_lane_pos == 0 %}disabled{% endif %}>&#9650;</button>
+        </form>
+        <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
+              hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+              hx-target="#task-table-body" hx-swap="innerHTML">
+          <input type="hidden" name="lane_id" value="{{ t_lane_id }}">
+          <input type="hidden" name="action" value="move_down">
+          <input type="hidden" name="partial" value="grid">
+          <button class="btn-lane-move" type="submit" title="Move lane &quot;{{ t_lane_name }}&quot; down one swimlane"
+                  {% if t_lane_pos + 1 >= lanes | length %}disabled{% endif %}>&#9660;</button>
+        </form>
+      </span>
+      {% endif %}
+    </div>
   </td>
   <td>
     <input form="task-form-{{ task.id }}" type="text" name="start_date" value="{{ fmt_date(t_start) if t_start else '' }}" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
   </td>
   <td>
-    <input form="task-form-{{ task.id }}" type="number" name="duration_days" value="{{ t_dur if t_dur is not none else '' }}" min="1" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+    <input form="task-form-{{ task.id }}" type="number" name="duration_days" value="{{ t_dur if t_dur is not none else '' }}" min="1" class="form-control form-control-sm text-end" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
   </td>
-  <td class="text-muted">{{ fmt_date(task.end_date) }}</td>
+  <td class="end-date">{{ fmt_date(task.end_date) }}</td>
   <td>
-    <input form="task-form-{{ task.id }}" type="text" name="responsible" value="{{ t_resp or '' }}" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+    <input form="task-form-{{ task.id }}" type="text" name="responsible" value="{{ t_resp or '' }}" placeholder="&mdash;" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
   </td>
   <td>
-    <input form="task-form-{{ task.id }}" type="text" name="predecessors" value="{{ t_preds or '' }}" class="form-control form-control-sm {% if task_errors %}is-invalid{% endif %}"
+    <input form="task-form-{{ task.id }}" type="text" name="predecessors" value="{{ t_preds or '' }}" placeholder="&mdash;" class="form-control form-control-sm {% if task_errors %}is-invalid{% endif %}"
            onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
     {% if task_errors %}
-      <div class="invalid-tooltip d-block position-relative mt-1">
+      <div class="invalid-tooltip d-block position-relative">
         {% for e in task_errors %}<div>{{ e }}</div>{% endfor %}
       </div>
     {% endif %}
@@ -55,7 +104,7 @@
       <option value="done" {% if t_status == "done" %}selected{% endif %}>Done</option>
     </select>
   </td>
-  <td>
+  <td class="text-end">
     <form id="task-form-{{ task.id }}" method="POST" action="{{ url_for('main.update_task', task_id=task.id) }}"
           hx-post="{{ url_for('main.update_task', task_id=task.id) }}"
           hx-target="#task-table-body"
@@ -66,7 +115,7 @@
           hx-swap="innerHTML"
           onsubmit="return confirm('Delete task {{ task.code }}?')"
           class="d-inline">
-      <button class="btn btn-sm btn-outline-danger" type="submit">&times;</button>
+      <button class="btn btn-delete-task" type="submit" title="Delete task {{ task.code }}">&times;</button>
     </form>
   </td>
 </tr>

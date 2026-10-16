@@ -1,9 +1,10 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from collections import deque
 
 from flask import Blueprint, render_template, request, redirect, url_for, abort, make_response
 from .db import db
 from .models import Project, Lane, Task
+from .workdays import count_workdays, next_workday
 
 bp = Blueprint("main", __name__)
 
@@ -13,11 +14,17 @@ def fmt_date(d):
 
 
 def parse_date(s):
+    """Parse an entered date, rolled forward onto a working day.
+
+    The calendar is a 5-day week: a start date typed on a Saturday or Sunday
+    means "when the work actually starts", i.e. the following Monday, so the
+    grid never stores a weekend date.
+    """
     if not s:
         return None
     for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
         try:
-            return datetime.strptime(s.strip(), fmt).date()
+            return next_workday(datetime.strptime(s.strip(), fmt).date())
         except ValueError:
             continue
     return None
@@ -30,13 +37,18 @@ def parse_date(s):
 def recalculate_project(project_id):
     """Recompute start dates for every task in the project.
 
-    Rule: a task's end date is ``start_date + duration_days`` (the first day a
-    successor may start), and every task must start on or after the latest end
-    date of its predecessors. Whenever a task or its predecessor set changes,
-    this pushes affected dates forward along the dependency chain so the whole
-    project stays consistent; the grid is the source of truth and the diagram
-    simply reads the data back.
+    Dates follow the 5-day week: durations count working days and no task ever
+    starts on a Saturday or Sunday.
 
+    Rule: a task's end date is ``start_date + duration_days`` **working days**
+    (the first day a successor may start), and every task must start on or
+    after the latest end date of its predecessors. Whenever a task or its
+    predecessor set changes, this pushes affected dates forward along the
+    dependency chain so the whole project stays consistent; the grid is the
+    source of truth and the diagram simply reads the data back.
+
+    * Every start date is first rolled forward to the next working day, so a
+      date entered (or inherited) on a weekend lands on the Monday.
     * Tasks with no predecessors keep their entered start date: they anchor
       the schedule.
     * Tasks are processed in dependency order (predecessors first), so a
@@ -51,6 +63,15 @@ def recalculate_project(project_id):
     if not by_code:
         return []
 
+    moved = set()
+
+    # Pass 1 - nobody works weekends: roll any Sat/Sun start onto the Monday.
+    for code, task in by_code.items():
+        workday = next_workday(task.start_date)
+        if workday != task.start_date:
+            task.start_date = workday
+            moved.add(code)
+
     dependents = {code: [] for code in by_code}
     indegree = {}
     for code, task in by_code.items():
@@ -60,24 +81,25 @@ def recalculate_project(project_id):
             dependents[p].append(code)
 
     queue = deque(sorted(c for c in by_code if indegree[c] == 0))
-    moved = []
     while queue:
         code = queue.popleft()
         task = by_code[code]
         preds = [by_code[p] for p in task.predecessor_codes()
                  if p in by_code and p != code]
         if preds:
+            # Every predecessor's end date is already a working day, so the
+            # earliest legal start is too.
             earliest = max(p.end_date for p in preds)
             if task.start_date < earliest:
                 task.start_date = earliest
-                moved.append(code)
+                moved.add(code)
         for d in dependents[code]:
             indegree[d] -= 1
             if indegree[d] == 0:
                 queue.append(d)
     # Tasks left unprocessed belong to a predecessor cycle; they keep their
     # entered dates (cycles cannot be saved, validate_task rejects them).
-    return moved
+    return sorted(moved)
 
 
 # Projects index
@@ -151,6 +173,10 @@ def _swap_lane_orders(a, b):
 # Lanes
 @bp.route("/projects/<int:id>/lanes", methods=["POST"])
 def manage_lanes(id):
+    """Lane plumbing kept for ordering, renaming and removal from outside the
+    grid (and for the tests). The page itself no longer renders a Lanes panel:
+    the grid's Lane cell creates and renames lanes as you type.
+    """
     proj = Project.query.get_or_404(id)
     action = request.form.get("action")
 
@@ -197,6 +223,19 @@ def manage_lanes(id):
             l.sort_order = i
         db.session.commit()
 
+    if request.form.get("partial") == "grid":
+        # The Lane cell's order arrows: answer with the grid rows, not a page
+        # redirect, so the table stays in place and keeps focus. The row order
+        # is unchanged, but the arrows' disabled state depends on lane order,
+        # so the rows are re-rendered rather than left as they are.
+        lanes = lanes_in_order(proj.id)
+        tasks = Task.query.filter_by(project_id=proj.id).all()
+        response = make_response(render_template(
+            "partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks,
+            fmt_date=fmt_date))
+        response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+        return response
+
     return redirect(url_for("main.project", id=proj.id))
 
 
@@ -210,6 +249,62 @@ def next_task_code(project_id):
     else:
         next_num = 1
     return f"{next_num:03d}"
+
+
+def lanes_in_order(project_id):
+    """The project's lanes in swimlane order - what the grid's Lane list shows."""
+    return Lane.query.filter_by(project_id=project_id).order_by(Lane.sort_order).all()
+
+
+def resolve_lane(proj, lane_name, current_lane_id):
+    """Map the grid's Lane cell onto a lane row.
+
+    Lanes have no panel of their own any more: the cell is a free-text combo,
+    so the name typed there *is* the lane management UI.
+
+    * a name matching an existing lane (case-insensitively) selects it, and
+      adopts the spelling just typed so the swimlane label follows the grid;
+    * an unknown name creates a lane at the end of the swimlane order;
+    * an empty cell keeps the task's current lane - clearing the field must
+      never orphan a task.
+    """
+    name = (lane_name or "").strip()
+    if not name:
+        return Lane.query.filter_by(id=current_lane_id, project_id=proj.id).first()
+
+    lane = Lane.query.filter(
+        Lane.project_id == proj.id,
+        db.func.lower(Lane.name) == name.lower(),
+    ).first()
+    if lane is None:
+        max_order = db.session.query(db.func.max(Lane.sort_order)).filter_by(project_id=proj.id).scalar() or 0
+        lane = Lane(project_id=proj.id, name=name, sort_order=max_order + 1)
+        db.session.add(lane)
+        db.session.flush()
+    elif lane.name != name:
+        lane.name = name
+    return lane
+
+
+def prune_empty_lanes(project_id):
+    """Forget lanes that no task uses any more; returns their names.
+
+    A lane only exists because someone typed it into a row, so a typo - or a
+    rename that moves the last task out - would otherwise leave a dead option
+    in every row's Lane list, with no panel left to clean it up. Call this
+    after the task changes are flushed. A lane that still holds tasks is never
+    touched: deleting it would orphan them.
+    """
+    db.session.flush()
+    used = {row[0] for row in db.session.query(Task.lane_id)
+                            .filter(Task.project_id == project_id)
+                            .group_by(Task.lane_id).all()}
+    removed = []
+    for lane in Lane.query.filter_by(project_id=project_id).all():
+        if lane.id not in used:
+            removed.append(lane.name)
+            db.session.delete(lane)
+    return removed
 
 
 def validate_task(task, project_id, exclude_task_id=None, check_schedule=True):
@@ -277,22 +372,23 @@ def validate_task(task, project_id, exclude_task_id=None, check_schedule=True):
 def project_date_stats(tasks):
     """Project-level totals shown above the Lanes panel.
 
-    `total_effort` is the sum of all task durations in days, and
-    `total_duration` the (inclusive) calendar span from the earliest start
-    date to the latest end date.
+    `total_effort` is the sum of all task durations, and `total_duration` the
+    span from the earliest start date to the latest end date - both counted in
+    **working days** (Saturday and Sunday excluded), so the numbers match the
+    dates on the grid rather than the wall calendar.
     """
     if not tasks:
         return 0, 0, None, None
     total_effort = sum(t.duration_days for t in tasks)
     project_start = min(t.start_date for t in tasks)
     project_end = max(t.end_date for t in tasks)
-    return total_effort, (project_end - project_start).days, project_start, project_end
+    return total_effort, count_workdays(project_start, project_end), project_start, project_end
 
 
 @bp.route("/projects/<int:id>", methods=["GET"])
 def project(id):
     proj = Project.query.get_or_404(id)
-    lanes = Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()
+    lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
     total_effort, total_duration, project_start, project_end = project_date_stats(tasks)
     return render_template("project.html", project=proj, lanes=lanes, tasks=tasks,
@@ -304,20 +400,32 @@ def project(id):
 @bp.route("/projects/<int:id>/tasks", methods=["POST"])
 def create_task(id):
     proj = Project.query.get_or_404(id)
-    lanes = Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()
-    if not lanes:
-        return "No lanes available. Create a lane first.", 400
 
-    lane_id = request.form.get("lane_id", type=int)
-    if not lane_id:
-        lane_id = lanes[0].id
+    # Lanes come out of the grid now, so a brand-new project has none: give the
+    # first task a lane to live in rather than refusing to add it.
+    lanes = lanes_in_order(proj.id)
+    if not lanes:
+        first = Lane(project_id=proj.id, name="Lane 1", sort_order=1)
+        db.session.add(first)
+        db.session.flush()
+        lanes = [first]
+
+    lane_name = request.form.get("lane_name", "").strip()
+    if lane_name:
+        lane = resolve_lane(proj, lane_name, None)
+    else:
+        # Otherwise keep the new row in the lane of the last row, so clicking
+        # "+ Add task" several times groups the tasks in the same swimlane.
+        last = Task.query.filter_by(project_id=proj.id).order_by(Task.code.desc()).first()
+        lane = (Lane.query.filter_by(id=last.lane_id, project_id=proj.id).first()
+                if last else None) or lanes[-1]
 
     task = Task(
         project_id=proj.id,
         code=next_task_code(proj.id),
-        lane_id=lane_id,
+        lane_id=lane.id,
         name="New Task",
-        start_date=date.today(),
+        start_date=next_workday(date.today()),
         duration_days=1,
         responsible=None,
         predecessors=None,
@@ -331,6 +439,7 @@ def create_task(id):
     recalculate_project(proj.id)
     db.session.commit()
 
+    lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
     response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
     response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
@@ -341,12 +450,20 @@ def create_task(id):
 def update_task(task_id):
     task = Task.query.get_or_404(task_id)
     proj = Project.query.get_or_404(task.project_id)
-    lanes = Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()
+    lanes = lanes_in_order(proj.id)
 
     # Gather new values
     new_name = request.form.get("name", task.name).strip()
-    new_lane_id = request.form.get("lane_id", type=int)
-    if not new_lane_id:
+
+    # The grid posts the lane *name* typed into the combo; `lane_id` (the old
+    # dropdown) is still honoured when no lane_name field is present. Resolving
+    # a name can create or rename a lane, so it waits until validation passes.
+    lane_name_raw = request.form.get("lane_name")
+    if lane_name_raw is None:
+        new_lane_name = None
+        new_lane_id = request.form.get("lane_id", type=int) or task.lane_id
+    else:
+        new_lane_name = lane_name_raw.strip()
         new_lane_id = task.lane_id
 
     start_raw = request.form.get("start_date", "").strip()
@@ -405,6 +522,7 @@ def update_task(task_id):
                 task.id: {
                     "name": new_name,
                     "lane_id": new_lane_id,
+                    "lane_name": new_lane_name or None,
                     "start_date": new_start if new_start else None,
                     "duration_days": new_dur if new_dur >= 0 else None,
                     "responsible": new_resp,
@@ -417,6 +535,9 @@ def update_task(task_id):
         return response, 422
 
     task.name = new_name
+    if new_lane_name is not None:
+        # Create / adopt the lane the user typed, then move the task into it.
+        new_lane_id = resolve_lane(proj, lane_name_raw, task.lane_id).id
     task.lane_id = new_lane_id
     task.start_date = new_start
     task.duration_days = new_dur
@@ -425,10 +546,15 @@ def update_task(task_id):
     task.started = started_by_status
     task.done = done_by_status
 
+    # A lane the user just renamed out of existence (no tasks left) is dropped,
+    # so the combo never keeps offering a dead name.
+    prune_empty_lanes(proj.id)
+
     # Push successors forward so the whole chain stays consistent.
     recalculate_project(proj.id)
     db.session.commit()
 
+    lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
     response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
     response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
@@ -439,7 +565,6 @@ def update_task(task_id):
 def delete_task(task_id):
     task = Task.query.get_or_404(task_id)
     proj = Project.query.get_or_404(task.project_id)
-    lanes = Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()
 
     # Remove references to this task from other tasks' predecessors
     code = task.code
@@ -458,6 +583,7 @@ def delete_task(task_id):
     recalculate_project(proj.id)
     db.session.commit()
 
+    lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
     response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
     response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
@@ -473,7 +599,7 @@ def export_jira_csv(id):
     from .jira_export import export_project_csv, export_filename
 
     proj = Project.query.get_or_404(id)
-    lanes = Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()
+    lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
     csv_text = export_project_csv(proj, lanes, tasks)
 
@@ -491,7 +617,7 @@ def export_jira_csv(id):
 @bp.route("/projects/<int:id>/diagram")
 def diagram_partial(id):
     proj = Project.query.get_or_404(id)
-    lanes = Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()
+    lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
     from .diagram import build_diagram
     return build_diagram(lanes, tasks)

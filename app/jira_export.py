@@ -11,6 +11,10 @@ Jira's CSV import rules that shape this module:
   task lists its predecessors under ``is blocked by``.
 * Hierarchy and other optional fields are omitted: lanes map to Components,
   which needs no extra Jira setup.
+
+Dates come straight from the scheduler, so they follow the 5-day week: a
+duration counts working days and no start or due date falls on a Saturday or
+Sunday.
 """
 
 import csv
@@ -31,7 +35,7 @@ FIELD_NAMES = [
     # PERT scheduling details (map these to custom fields during import).
     "PERT Code",
     "Start Date",
-    "Duration (days)",
+    "Duration (working days)",
     "PERT Status",
     "Predecessors",
     # Link column: name it after the Jira link type you want created. It must
@@ -54,7 +58,12 @@ def _issue_id(task):
 
 
 def _estimate(task):
-    """Jira duration format (``10d``) derived from the PERT duration."""
+    """Jira duration format (``10d``) from the PERT duration.
+
+    Jira's ``d`` unit is calendar days by default; the number is the working-day
+    count from the grid, which is the figure to map onto a working-day custom
+    field if Jira is configured with a work schedule.
+    """
     days = task.duration_days or 0
     return f"{days}d" if days else ""
 
@@ -94,7 +103,7 @@ def export_project_csv(project, lanes, tasks):
             "Labels": "",
             "PERT Code": task.code,
             "Start Date": task.start_date.isoformat() if task.start_date else "",
-            "Duration (days)": task.duration_days,
+            "Duration (working days)": task.duration_days,
             "PERT Status": PERT_STATUS_LABELS.get(task.status, task.status),
             "Predecessors": ", ".join(predecessors),
             "is blocked by": ", ".join(predecessors),

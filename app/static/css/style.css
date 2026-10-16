@@ -135,15 +135,15 @@
   align-items: center;
 }
 
-.card-body {
+/* Diagram task card: center the rows vertically between the title bar and
+   the bottom edge (removes the extra gap below the title).
+   All card internals are scoped to .task-card on purpose - Bootstrap also uses
+   .card-body/.card-row/.card-cell/.card-footer on the page panels, and these
+   diagram-only rules must not leak into them. */
+.task-card .card-body {
   font-size: 12px;
   font-weight: 600;
   text-align: center;
-}
-
-/* Diagram task card: center the rows vertically between the title bar and
-   the bottom edge (removes the extra gap below the title). */
-.task-card .card-body {
   flex: 1 1 auto;
   min-height: 0;
   padding: 0;
@@ -152,12 +152,12 @@
   justify-content: center;
 }
 
-.card-row {
+.task-card .card-row {
   display: flex;
   border-bottom: 1px solid #e0e0e0;
 }
 
-.card-cell {
+.task-card .card-cell {
   flex: 1;
   padding: 4px 1px;
   border-right: 1px solid #e0e0e0;
@@ -165,11 +165,11 @@
   line-height: 1.5;
 }
 
-.card-cell:last-child {
+.task-card .card-cell:last-child {
   border-right: none;
 }
 
-.card-footer {
+.task-card .card-footer {
   flex: 0 0 auto;
   min-height: 15px;
   display: flex;
@@ -184,11 +184,11 @@
   text-overflow: ellipsis;
 }
 
-.card-status {
+.task-card .card-status {
   font-weight: 700;
 }
 
-.card-responsible {
+.task-card .card-responsible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -201,11 +201,199 @@
   z-index: 6;
 }
 
-table#task-table th, table#task-table td {
+/* ---------------------------------------------------------------------------
+   Task grid - one compact, low-chrome line per task.
+
+   The row should read as data, not as a strip of form controls: cells are
+   separated by a single hairline (no vertical rules), inputs and dropdowns are
+   borderless until hover/focus, padding is tight, and the delete button only
+   appears when the row is active. The Lane cell is a free-text combo backed by
+   a datalist, so typing a new swimlane name creates it on save.
+   --------------------------------------------------------------------------- */
+
+#task-table {
+  font-size: 13px;
+  --bs-table-hover-bg: #f6f8fa;   /* BS 5.3's table-hover reads this variable */
+}
+
+#task-table thead th {
+  padding: .3rem .45rem;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #8c959c;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #dee2e6;
+  white-space: nowrap;
+}
+
+#task-table td {
+  padding: .05rem .45rem;
+  border: 0;
+  border-bottom: 1px solid #f0f2f5;
   vertical-align: middle;
 }
 
-.invalid-tooltip {
+#task-table tbody tr:last-child > * { border-bottom: 0; }
+
+/* The body's first column carries a 3px status bar; give the header the same
+   invisible offset so the ID column stays aligned with the cells below it. */
+#task-table thead th:first-child { border-left: 3px solid transparent; }
+
+/* A 3px status bar carries the state at a glance, so the Status dropdown does
+   not have to shout. border-left (not box-shadow) because Bootstrap paints its
+   row hover tint with an inset box-shadow on the very same cells.
+   Colours match STATUS_STYLES in app/diagram.py. */
+#task-table tr.status-not_started > td:first-child { border-left: 3px solid #6c757d; }
+#task-table tr.status-started    > td:first-child { border-left: 3px solid #f39c12; }
+#task-table tr.status-done       > td:first-child { border-left: 3px solid #27ae60; }
+
+#task-table .task-code {
+  font-family: var(--bs-font-monospace);
+  color: #98a1a8;
+  font-size: 12px;
+}
+
+#task-table .end-date { color: #6c757d; white-space: nowrap; }
+
+/* Lane cell: the name combo plus its swimlane-order arrows - with the lane
+   panel gone, ordering lives here. They are as quiet as the delete button:
+   invisible and inert until the row is active, and stacked in the field's own
+   line so the row height does not change. */
+.lane-cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.lane-cell .form-control { flex: 1 1 auto; min-width: 0; }
+
+.lane-move {
+  display: inline-flex;
+  flex-direction: column;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .1s ease;
+}
+
+#task-table tr:hover .lane-move,
+.lane-move:focus-within { opacity: 1; pointer-events: auto; }
+
+.lane-move form { line-height: 0; }
+
+.btn-lane-move {
+  border: 0;
+  background: transparent;
+  padding: 0 1px;
+  font-size: 8px;
+  line-height: 1.2;
+  color: #adb5bd;
+  cursor: pointer;
+  transition: color .1s ease;
+}
+
+.btn-lane-move:hover:not(:disabled) { color: #495057; }
+.btn-lane-move:disabled { color: #e9ecef; cursor: default; }
+
+/* Borderless controls: height comes from content, so rows stay one short line. */
+#task-table .form-control,
+#task-table .form-select {
+  height: auto;
+  padding: 2px 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background-color: transparent;
+  transition: border-color .1s ease, background-color .1s ease, box-shadow .1s ease;
+}
+
+#task-table .form-select {
+  padding-right: 1.3rem;
+  background-position: right .2rem center;
+}
+
+#task-table .form-control::placeholder { color: #ced4da; opacity: 1; }
+
+#task-table .form-control:hover:not(:focus),
+#task-table .form-select:hover:not(:focus) { border-color: #dfe3e8; }
+
+/* Weaker hint for the rest of the row, so a hovered row says "editable" while
+   the control under the pointer stands out more (rule above wins on it). */
+#task-table tr:hover .form-control,
+#task-table tr:hover .form-select { border-color: #eef1f4; }
+
+#task-table .form-control:focus,
+#task-table .form-select:focus {
+  background-color: #fff;
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 3px rgba(134, 183, 254, .18);
+}
+
+/* The spinner on the duration field is decoration that eats width. */
+#task-table input[name="duration_days"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+#task-table input[name="duration_days"]::-webkit-outer-spin-button,
+#task-table input[name="duration_days"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Validation stays out of the way: a rejected row is the only one that grows,
+   and its message is a single small line rather than a boxed tooltip. */
+#task-table .form-control.is-invalid {
+  background-image: none;
+  border-color: #f1aeb5;
+  background-color: #fff;
+}
+
+#task-table tr.has-errors { background: #fff8f8; }
+
+#task-table .invalid-tooltip {
   font-size: 11px;
   color: #dc3545;
+  padding-top: 1px;
+}
+
+/* Ghost delete button - invisible and inert until the row is hovered or it
+   takes focus (pointer-events off, so an invisible \times can never be
+   clicked by accident). */
+#task-table .btn-delete-task {
+  opacity: 0;
+  pointer-events: none;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: #adb5bd;
+  font-size: 16px;
+  line-height: 1;
+  transition: opacity .1s ease, color .1s ease;
+}
+
+#task-table tr:hover .btn-delete-task,
+#task-table .btn-delete-task:focus-visible { opacity: 1; pointer-events: auto; }
+
+/* background/border reset: the button also carries Bootstrap's .btn, whose
+   :hover rule would otherwise paint a box behind the ghost icon. */
+#task-table .btn-delete-task:hover { color: #dc3545; background: transparent; border-color: transparent; }
+
+/* Quiet one-line stats in the Tasks panel header. */
+.panel-header { padding: .45rem .75rem; }
+
+.tasks-stats b { color: #495057; font-weight: 600; }
+
+/* The "+ add" button is outline by default and only fills in on hover, so it
+   does not compete with the panel title (Bootstrap's solid success is a lot of
+   colour for a header corner). */
+.btn-add-task {
+  --bs-btn-bg: transparent;
+  --bs-btn-border-color: #a3cfbb;
+  --bs-btn-color: #198754;
+  --bs-btn-hover-bg: #198754;
+  --bs-btn-hover-border-color: #198754;
+  --bs-btn-hover-color: #fff;
 }

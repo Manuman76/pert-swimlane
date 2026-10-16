@@ -4,8 +4,9 @@ The grid is the source of truth: whenever a task (start date, duration,
 predecessors) or a whole task changes, :func:`app.routes.recalculate_project`
 pushes every dependent task forward along the dependency chain so that
 ``successor.start >= max(pred.end)`` always holds, and every task's
-``end_date`` remains ``start_date + duration_days``. Recalculation only
-ever moves a date later, never earlier.
+``end_date`` remains ``start_date + duration_days`` **working days** (5-day
+week: Saturday and Sunday are skipped, so no date ever lands on a weekend).
+Recalculation only ever moves a date later, never earlier.
 """
 from datetime import date
 
@@ -15,6 +16,7 @@ from app import create_app
 from app.db import db
 from app.models import Lane, Project, Task
 from app.routes import recalculate_project, project_date_stats
+from app.workdays import count_workdays
 
 
 @pytest.fixture
@@ -79,35 +81,51 @@ def test_recalc_pushes_successor_after_predecessor(app):
     db.session.commit()
 
     t1, t2 = _task(proj, "001"), _task(proj, "002")
-    assert t1.start_date == date(2017, 6, 1)      # anchor untouched
-    assert t1.end_date == date(2017, 6, 4)
-    assert t2.start_date == date(2017, 6, 4)      # 001's exclusive end
-    assert t2.end_date == date(2017, 6, 12)
+    assert t1.start_date == date(2017, 6, 1)      # anchor untouched (Thursday)
+    assert t1.end_date == date(2017, 6, 6)        # Thu+Fri+Mon -> Tue, weekend skipped
+    assert t2.start_date == date(2017, 6, 6)      # 001's exclusive end
+    assert t2.end_date == date(2017, 6, 16)       # 8 working days from Jun 6
 
 
 def test_recalc_does_not_move_successor_earlier(app):
     proj, (lane,) = _new_project("R2")
     _add_task(proj, lane, "001", "A", date(2017, 6, 1), 2)
-    _add_task(proj, lane, "002", "B", date(2017, 6, 10), 1, "001")
+    _add_task(proj, lane, "002", "B", date(2017, 6, 12), 1, "001")
 
     recalculate_project(proj.id)
     db.session.commit()
 
-    assert _task(proj, "002").start_date == date(2017, 6, 10)
+    assert _task(proj, "002").start_date == date(2017, 6, 12)
+
+
+def test_recalc_rolls_weekend_start_onto_monday(app):
+    """Nobody works weekends: a start date on a Saturday or Sunday moves to the
+    following Monday, and everything downstream follows."""
+    proj, (lane,) = _new_project("R2W")
+    _add_task(proj, lane, "001", "A", date(2017, 6, 3), 2)   # Saturday
+    _add_task(proj, lane, "002", "B", date(2017, 6, 4), 1, "001")  # Sunday
+
+    moved = recalculate_project(proj.id)
+    db.session.commit()
+
+    assert _task(proj, "001").start_date == date(2017, 6, 5)   # Monday
+    assert _task(proj, "001").end_date == date(2017, 6, 7)
+    assert _task(proj, "002").start_date == date(2017, 6, 7)
+    assert set(moved) == {"001", "002"}
 
 
 def test_recalc_cascades_through_chain(app):
     proj, (lane,) = _new_project("R3")
     _add_task(proj, lane, "001", "A", date(2017, 6, 1), 3)
     _add_task(proj, lane, "002", "B", date(2017, 6, 2), 2, "001")  # invalid
-    _add_task(proj, lane, "003", "C", date(2017, 6, 4), 4, "002")
+    _add_task(proj, lane, "003", "C", date(2017, 6, 7), 4, "002")
 
     moved = recalculate_project(proj.id)
     db.session.commit()
 
     assert _task(proj, "001").start_date == date(2017, 6, 1)
-    assert _task(proj, "002").start_date == date(2017, 6, 4)  # = 001's exclusive end
-    assert _task(proj, "003").start_date == date(2017, 6, 6)  # = 002's exclusive end
+    assert _task(proj, "002").start_date == date(2017, 6, 6)  # = 001's exclusive end
+    assert _task(proj, "003").start_date == date(2017, 6, 8)  # = 002's exclusive end
     assert set(moved) == {"002", "003"}
 
 
@@ -115,24 +133,24 @@ def test_recalc_joins_multiple_predecessors(app):
     proj, (lane,) = _new_project("R4")
     _add_task(proj, lane, "001", "A", date(2017, 6, 1), 3)
     _add_task(proj, lane, "002", "B", date(2017, 6, 1), 5)
-    _add_task(proj, lane, "003", "C", date(2017, 6, 5), 2, "001,002")  # 002 ends 6
+    _add_task(proj, lane, "003", "C", date(2017, 6, 5), 2, "001,002")  # 002 ends Jun 8
 
     recalculate_project(proj.id)
     db.session.commit()
 
-    assert _task(proj, "003").start_date == date(2017, 6, 6)
-    assert _task(proj, "003").end_date == date(2017, 6, 8)
+    assert _task(proj, "003").start_date == date(2017, 6, 8)
+    assert _task(proj, "003").end_date == date(2017, 6, 12)   # weekend skipped
 
 
 def test_recalc_ignores_unknown_predecessor_codes(app):
     proj, (lane,) = _new_project("R5")
     _add_task(proj, lane, "001", "A", date(2017, 6, 1), 3)
-    _add_task(proj, lane, "002", "B", date(2017, 6, 10), 2, "999")
+    _add_task(proj, lane, "002", "B", date(2017, 6, 12), 2, "999")
 
     moved = recalculate_project(proj.id)
     db.session.commit()
 
-    assert _task(proj, "002").start_date == date(2017, 6, 10)
+    assert _task(proj, "002").start_date == date(2017, 6, 12)
     assert moved == []
 
 
@@ -141,13 +159,13 @@ def test_recalc_safe_on_predecessor_cycle(app):
     leave the tasks untouched."""
     proj, (lane,) = _new_project("R6")
     _add_task(proj, lane, "001", "A", date(2017, 6, 1), 2, "002")
-    _add_task(proj, lane, "002", "B", date(2017, 6, 3), 2, "001")
+    _add_task(proj, lane, "002", "B", date(2017, 6, 2), 2, "001")
 
     recalculate_project(proj.id)
     db.session.commit()
 
     assert _task(proj, "001").start_date == date(2017, 6, 1)
-    assert _task(proj, "002").start_date == date(2017, 6, 3)
+    assert _task(proj, "002").start_date == date(2017, 6, 2)
 
 
 def test_recalc_no_tasks_is_noop(app):
@@ -167,7 +185,7 @@ def test_update_route_persists_pushed_dates(client, app):
         _add_task(proj, lane, "002", "B", date(2017, 6, 5), 2, "001")
         t1_id = t1.id
 
-        # Extend A from 3 to 6 days: B must move from Jun 5 to Jun 7.
+        # Extend A from 3 to 6 working days: B must move from Jun 5 to Jun 9.
         resp = client.post(f"/tasks/{t1_id}/update", data={
             "name": "A",
             "lane_id": str(lane.id),
@@ -180,14 +198,13 @@ def test_update_route_persists_pushed_dates(client, app):
 
         db.session.expire_all()
         b = Task.query.filter_by(project_id=proj.id, code="002").one()
-        assert b.start_date == date(2017, 6, 7)
-        assert b.end_date == date(2017, 6, 9)
+        assert b.start_date == date(2017, 6, 9)
+        assert b.end_date == date(2017, 6, 13)
 
         # The refreshed grid shows the new dates for both tasks.
         html = resp.get_data(as_text=True)
-        assert "7 Jun 2017" in html        # new start of B
-        assert "9 Jun 2017" in html        # new end of B
-        assert "7 Jun 2017" in html        # new end of A
+        assert "9 Jun 2017" in html        # new start of B (= A's new end)
+        assert "13 Jun 2017" in html       # new end of B
 
 
 def test_update_route_persists_new_predecessor(client, app):
@@ -197,8 +214,8 @@ def test_update_route_persists_new_predecessor(client, app):
         _add_task(proj, lane, "002", "B", date(2017, 6, 10), 1, "001")
         t3 = _add_task(proj, lane, "003", "C", date(2017, 6, 5), 2)
 
-        # Make C depend on B. B ends 2017-06-11 (exclusive), so C must be
-        # pushed from Jun 5 to Jun 11.
+        # Make C depend on B. B starts on a Saturday, so it rolls to Mon Jun 12
+        # and ends Tue Jun 13 (exclusive): C is pushed from Jun 5 to Jun 13.
         resp = client.post(f"/tasks/{t3.id}/update", data={
             "name": "C",
             "lane_id": str(lane.id),
@@ -212,7 +229,7 @@ def test_update_route_persists_new_predecessor(client, app):
         db.session.expire_all()
         c = Task.query.filter_by(project_id=proj.id, code="003").one()
         assert c.predecessors == "002"
-        assert c.start_date == date(2017, 6, 11)
+        assert c.start_date == date(2017, 6, 13)
 
 
 def test_update_route_is_push_only(client, app):
@@ -237,7 +254,7 @@ def test_update_route_is_push_only(client, app):
         db.session.expire_all()
         c = Task.query.filter_by(project_id=proj.id, code="003").one()
         assert c.start_date == date(2017, 6, 30)
-        assert c.end_date == date(2017, 7, 2)
+        assert c.end_date == date(2017, 7, 4)   # Jul 1/2 are the weekend
 
 
 def test_update_route_rejects_start_before_predecessor(client, app):
@@ -305,7 +322,7 @@ def test_delete_route_removes_task_and_keeps_chain_consistent(client, app):
         remaining = Task.query.filter_by(project_id=proj.id).all()
         assert [t.code for t in remaining] == ["001"]
         assert remaining[0].start_date == date(2017, 6, 1)
-        assert remaining[0].end_date == date(2017, 6, 4)
+        assert remaining[0].end_date == date(2017, 6, 6)
 
 
 # ---------------------------------------------------------------------------
@@ -333,5 +350,7 @@ def test_project_date_stats_totals(app):
 
         assert total_effort == 3 + 2 + 8 + 8
         assert start == date(2017, 6, 1)
-        assert end == date(2017, 6, 22)
-        assert total_duration == (end - start).days
+        assert end == date(2017, 6, 26)      # 8 working days from Wed Jun 14
+        # The span is counted in working days, not calendar days: the 25-day
+        # calendar gap holds 17 Monday-Friday days.
+        assert total_duration == count_workdays(start, end) == 17

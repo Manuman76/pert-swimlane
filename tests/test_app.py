@@ -42,6 +42,9 @@ _project_counter = 0
 
 
 def test_end_date(app):
+    """``end_date`` is the exclusive finish, counted in working days: a 3-day
+    task starting Thursday 1 Jun is worked Thu, Fri and Mon, so it ends on
+    Tuesday 6 Jun - Saturday and Sunday are never task time."""
     with app.app_context():
         proj = _create_project("TestEndDate")
         lane = _create_lane(proj, "Lane1")
@@ -53,7 +56,7 @@ def test_end_date(app):
             start_date=date(2017, 6, 1),
             duration_days=3,
         )
-        assert task.end_date == date(2017, 6, 4)
+        assert task.end_date == date(2017, 6, 6)
 
 
 def test_code_auto_assignment(client, app):
@@ -127,7 +130,7 @@ def test_validation_scheduling(client, app):
         db.session.add(t2)
         db.session.commit()
 
-        # T2 starts before T1 ends (T1 ends 2017-06-04, T2 starts 2017-06-02)
+        # T2 starts before T1 ends (T1 ends 2017-06-06, T2 starts 2017-06-02)
         resp = client.post(f"/tasks/{t2.id}/update", data={
             "predecessors": "001",
             "start_date": "2 Jun 2017",

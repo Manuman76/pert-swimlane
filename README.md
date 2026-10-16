@@ -82,9 +82,29 @@ projects (id, name, created_at, updated_at)
               responsible, predecessors, created_at, updated_at)
 ```
 
-- `end_date` is derived: `start_date + duration_days` (exclusive end)
+- `end_date` is derived: `start_date + duration_days` **working days** (exclusive end, 5-day week)
 - `code` is auto-assigned as 3-digit zero-padded sequential numbers per project
 - `predecessors` stores comma-separated task codes with finish-to-start semantics
+
+## Calendar: 5-day week
+
+Saturday and Sunday are never task time. All weekend arithmetic lives in
+`app/workdays.py` (`is_workday`, `next_workday`, `add_workdays`,
+`count_workdays`) and everything else goes through it:
+
+- `duration_days` counts Monday-Friday days: a 5-day task starting Monday ends
+  the **next Monday**, not Saturday.
+- `end_date` (`start_date + duration_days` working days) is the exclusive
+  finish - the first day a successor may start - and is always a weekday.
+- A start date typed on a weekend is rolled forward to the following Monday,
+  both when entered (`parse_date`) and by any recalculation, so the grid never
+  holds a Saturday/Sunday date. A task created on a weekend starts on Monday.
+- Successors are pushed to `max(predecessor end_date)`, which is already a
+  working day, so a cascade never lands on a weekend.
+- The project header's "Total effort" and "Duration" are working-day counts.
+
+Example: task 001 starts Thu 1 Jun with duration 3 -> worked Thu 1, Fri 2,
+Mon 5, `end_date` Tue 6 Jun; a successor starts Tue 6 Jun.
 
 ## Diagram Layout
 
@@ -107,7 +127,12 @@ The diagram is computed server-side with deterministic layout:
 4. No cyclic dependencies
 5. Task start_date must be >= max(end_date of its predecessors)
 
+The Lane cell is not a blocking rule: an unknown name simply creates the lane.
+
 When blocked, the offending row shows a red error badge with a tooltip explaining the rule.
+Dates on the grid are read back after `recalculate_project`, which first rolls
+any weekend start date onto Monday and then pushes successors forward along the
+dependency chain (only ever later, never earlier).
 
 ## Routes
 
@@ -118,7 +143,7 @@ When blocked, the offending row shows a red error badge with a tooltip explainin
 | POST | `/projects/<id>/rename` | Rename project |
 | POST | `/projects/<id>/delete` | Delete project |
 | GET | `/projects/<id>` | Project page (grid + diagram) |
-| POST | `/projects/<id>/lanes` | Add/rename/move/delete lanes |
+| POST | `/projects/<id>/lanes` | Lane plumbing: create/rename/delete, and the grid's `move_up`/`move_down` order arrows (`partial=grid` answers with the grid rows) |
 | POST | `/projects/<id>/tasks` | Create task (auto code) |
 | POST | `/tasks/<id>/update` | Update task (validated) |
 | POST | `/tasks/<id>/delete` | Delete task (cleans predecessors) |
@@ -126,7 +151,24 @@ When blocked, the offending row shows a red error badge with a tooltip explainin
 
 ## Notes
 
-- Deleting a lane with tasks moves its tasks to the first remaining lane.
+- The task grid is deliberately low-chrome: one compact line per task, hairline
+  row separators, borderless controls that reveal their frame on hover/focus,
+  a 3px left bar for the status, and the delete button only on the active row.
+  Diagram card styles are scoped under `.task-card` so they never leak into the
+  Bootstrap panels (see the "Task grid" block in `app/static/css/style.css`).
+- Lanes have no panel: they live entirely in the grid's **Lane** cell, a text
+  combo (`<input name="lane_name">` + a `<datalist>` of the project's lanes).
+  Pick a name to assign it, type a new one to create the swimlane on save, and
+  clear the cell to keep the task where it is. A lane left without tasks is
+  pruned automatically, so typo'd names do not linger in every row's list, and
+  matching is case-insensitive (retyping `backend` adopts the spelling into the
+  existing lane instead of duplicating it). `+ Add task` on a project with no
+  lanes seeds `Lane 1`; otherwise the new row continues the lane of the last
+  row. Swimlane order is lane creation order (`sort_order`), and the two little
+  arrows that appear beside the Lane field on a hovered row move that task's
+  whole lane one position up or down - the response swaps only the grid rows
+  (`partial=grid`) and triggers a diagram redraw, so the page never reloads.
+- Through that route: deleting a lane with tasks moves its tasks to the first
+  remaining lane.
 - Deleting a task removes its code from all other tasks' predecessor lists.
-- Lanes are reordered via small up/down buttons in the lane manager.
 - The diagram scrolls horizontally for wide projects.
