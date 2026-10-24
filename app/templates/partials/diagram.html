@@ -44,8 +44,8 @@
               <div class="card-cell" title="working days (Saturday and Sunday skipped)">{{ task.duration_days }} day{% if task.duration_days != 1 %}s{% endif %}</div>
             </div>
             <div class="card-row">
-              <div class="card-cell">{{ task.start_date.strftime("%-d %b %Y") }}</div>
-              <div class="card-cell">{{ task.end_date.strftime("%-d %b %Y") }}</div>
+              <div class="card-cell">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</div>
+              <div class="card-cell">{{ task.end_date.strftime("%d %b %Y").lstrip("0") }}</div>
             </div>
             <div class="card-footer">
               <span class="card-status" style="color:{{ st.bar }}">{{ st.icon }} {{ st.label }}</span>

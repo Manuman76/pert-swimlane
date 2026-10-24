@@ -1,0 +1,48 @@
+{% for lane in lanes %}
+<div class="settings-lane-row">
+  <form class="settings-lane-name" method="POST"
+        action="{{ url_for('main.manage_lanes', id=project.id) }}"
+        hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+        hx-target="#settings-lanes-list" hx-swap="innerHTML">
+    <input type="hidden" name="action" value="rename">
+    <input type="hidden" name="lane_id" value="{{ lane.id }}">
+    <input type="hidden" name="tab" value="settings">
+    <input type="hidden" name="partial" value="settings">
+    <input class="form-control form-control-sm" name="name"
+           value="{{ lane.name }}" aria-label="Swimlane name" required>
+    <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+  </form>
+  <div class="settings-lane-actions">
+    <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id, action='move_up') }}"
+          hx-post="{{ url_for('main.manage_lanes', id=project.id, action='move_up') }}"
+          hx-target="#settings-lanes-list" hx-swap="innerHTML">
+      <input type="hidden" name="lane_id" value="{{ lane.id }}">
+      <input type="hidden" name="tab" value="settings">
+      <input type="hidden" name="partial" value="settings">
+      <button class="btn btn-sm btn-outline-secondary" type="submit" title="Move up"
+              {% if loop.first %}disabled{% endif %}>&uarr;</button>
+    </form>
+    <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id, action='move_down') }}"
+          hx-post="{{ url_for('main.manage_lanes', id=project.id, action='move_down') }}"
+          hx-target="#settings-lanes-list" hx-swap="innerHTML">
+      <input type="hidden" name="lane_id" value="{{ lane.id }}">
+      <input type="hidden" name="tab" value="settings">
+      <input type="hidden" name="partial" value="settings">
+      <button class="btn btn-sm btn-outline-secondary" type="submit" title="Move down"
+              {% if loop.last %}disabled{% endif %}>&darr;</button>
+    </form>
+    <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
+          hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+          hx-target="#settings-lanes-list" hx-swap="innerHTML"
+          onsubmit="return confirm('Delete this swimlane? Tasks will move to another lane.');">
+      <input type="hidden" name="action" value="delete">
+      <input type="hidden" name="lane_id" value="{{ lane.id }}">
+      <input type="hidden" name="tab" value="settings">
+      <input type="hidden" name="partial" value="settings">
+      <button class="btn btn-sm btn-outline-danger" type="submit" title="Delete">&times;</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<p class="text-muted small mb-0">No swimlanes yet. Add one above or create a task.</p>
+{% endfor %}

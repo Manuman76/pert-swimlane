@@ -207,8 +207,8 @@
    The row should read as data, not as a strip of form controls: cells are
    separated by a single hairline (no vertical rules), inputs and dropdowns are
    borderless until hover/focus, padding is tight, and the delete button only
-   appears when the row is active. The Lane cell is a free-text combo backed by
-   a datalist, so typing a new swimlane name creates it on save.
+   appears when the row is active. The Lane cell is a dropdown backed by the
+   project's configured swimlanes.
    --------------------------------------------------------------------------- */
 
 #task-table {
@@ -258,44 +258,11 @@
 
 #task-table .end-date { color: #6c757d; white-space: nowrap; }
 
-/* Lane cell: the name combo plus its swimlane-order arrows - with the lane
-   panel gone, ordering lives here. They are as quiet as the delete button:
-   invisible and inert until the row is active, and stacked in the field's own
-   line so the row height does not change. */
+/* Lane selector */
 .lane-cell {
   display: flex;
   align-items: center;
-  gap: 2px;
 }
-
-.lane-cell .form-control { flex: 1 1 auto; min-width: 0; }
-
-.lane-move {
-  display: inline-flex;
-  flex-direction: column;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .1s ease;
-}
-
-#task-table tr:hover .lane-move,
-.lane-move:focus-within { opacity: 1; pointer-events: auto; }
-
-.lane-move form { line-height: 0; }
-
-.btn-lane-move {
-  border: 0;
-  background: transparent;
-  padding: 0 1px;
-  font-size: 8px;
-  line-height: 1.2;
-  color: #adb5bd;
-  cursor: pointer;
-  transition: color .1s ease;
-}
-
-.btn-lane-move:hover:not(:disabled) { color: #495057; }
-.btn-lane-move:disabled { color: #e9ecef; cursor: default; }
 
 /* Borderless controls: height comes from content, so rows stay one short line. */
 #task-table .form-control,
@@ -385,6 +352,126 @@
 .panel-header { padding: .45rem .75rem; }
 
 .tasks-stats b { color: #495057; font-weight: 600; }
+
+.project-tabs .nav-link {
+  color: #5c6870;
+}
+
+.project-tabs .nav-link.active {
+  color: #212529;
+  font-weight: 600;
+}
+
+.settings-lane-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem 0;
+  border-top: 1px solid #f0f2f5;
+}
+
+.settings-lane-name {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-lane-name .form-control {
+  min-width: 0;
+}
+
+.settings-lane-actions {
+  display: flex;
+  gap: .25rem;
+}
+
+.settings-member-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem 0;
+  border-top: 1px solid #f0f2f5;
+}
+
+.settings-member-name {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-member-name .form-control {
+  min-width: 0;
+}
+
+.requirement-add-form,
+.requirement-row {
+  display: grid;
+  grid-template-columns: 90px minmax(160px, 1.2fr) minmax(180px, 1.5fr)
+                       56px minmax(180px, 1.5fr) 52px 34px;
+  gap: .5rem;
+  align-items: center;
+}
+
+.requirement-add-form {
+  grid-template-columns: 1fr 1.5fr auto;
+  margin-bottom: 1rem;
+}
+
+.requirement-row {
+  padding: .5rem 0;
+  border-top: 1px solid #f0f2f5;
+}
+
+.requirement-row > form {
+  display: contents;
+}
+
+.requirement-code {
+  color: #6c757d;
+  font-family: var(--bs-font-monospace);
+  font-size: 12px;
+}
+
+.requirement-row textarea {
+  resize: vertical;
+}
+
+.requirement-done-check {
+  margin: 0;
+}
+
+.requirement-linked-tasks {
+  color: #495057;
+  font-size: 12px;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.requirement-row.requirement-row--done .requirement-code,
+.requirement-row.requirement-row--done .requirement-linked-tasks {
+  opacity: .72;
+}
+
+.requirements-header span:nth-child(4) {
+  white-space: nowrap;
+}
+
+.requirements-header {
+  display: grid;
+  grid-template-columns: 90px minmax(160px, 1.2fr) minmax(180px, 1.5fr)
+                       56px minmax(180px, 1.5fr) 52px 34px;
+  gap: .5rem;
+  padding: .3rem 0;
+  color: #8c959c;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 
 /* The "+ add" button is outline by default and only fills in on hover, so it
    does not compete with the panel title (Bootstrap's solid success is a lot of

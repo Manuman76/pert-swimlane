@@ -1,0 +1,26 @@
+{% for member in members %}
+<div class="settings-member-row">
+  <form class="settings-member-name" method="POST"
+        action="{{ url_for('main.manage_members', id=project.id) }}"
+        hx-post="{{ url_for('main.manage_members', id=project.id) }}"
+        hx-target="#settings-members-list" hx-swap="innerHTML">
+    <input type="hidden" name="action" value="rename">
+    <input type="hidden" name="member_id" value="{{ member.id }}">
+    <input type="hidden" name="partial" value="settings">
+    <input class="form-control form-control-sm" name="name"
+           value="{{ member.name }}" aria-label="Team member name" required>
+    <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+  </form>
+  <form method="POST" action="{{ url_for('main.manage_members', id=project.id) }}"
+        hx-post="{{ url_for('main.manage_members', id=project.id) }}"
+        hx-target="#settings-members-list" hx-swap="innerHTML"
+        onsubmit="return confirm('Remove this team member? Assigned tasks will become unassigned.');">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="member_id" value="{{ member.id }}">
+    <input type="hidden" name="partial" value="settings">
+    <button class="btn btn-sm btn-outline-danger" type="submit" title="Remove">&times;</button>
+  </form>
+</div>
+{% else %}
+<p class="text-muted small mb-0">No team members yet. Add one above.</p>
+{% endfor %}

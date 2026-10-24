@@ -3,7 +3,7 @@ from collections import deque
 
 from flask import Blueprint, render_template, request, redirect, url_for, abort, make_response
 from .db import db
-from .models import Project, Lane, Task
+from .models import Project, Lane, Task, TeamMember, Requirement
 from .workdays import count_workdays, next_workday
 
 bp = Blueprint("main", __name__)
@@ -173,12 +173,9 @@ def _swap_lane_orders(a, b):
 # Lanes
 @bp.route("/projects/<int:id>/lanes", methods=["POST"])
 def manage_lanes(id):
-    """Lane plumbing kept for ordering, renaming and removal from outside the
-    grid (and for the tests). The page itself no longer renders a Lanes panel:
-    the grid's Lane cell creates and renames lanes as you type.
-    """
+    """Manage the project's configured swimlanes from Project settings."""
     proj = Project.query.get_or_404(id)
-    action = request.form.get("action")
+    action = request.values.get("action")
 
     if action == "add":
         name = request.form.get("name", "").strip()
@@ -223,20 +220,15 @@ def manage_lanes(id):
             l.sort_order = i
         db.session.commit()
 
-    if request.form.get("partial") == "grid":
-        # The Lane cell's order arrows: answer with the grid rows, not a page
-        # redirect, so the table stays in place and keeps focus. The row order
-        # is unchanged, but the arrows' disabled state depends on lane order,
-        # so the rows are re-rendered rather than left as they are.
-        lanes = lanes_in_order(proj.id)
-        tasks = Task.query.filter_by(project_id=proj.id).all()
-        response = make_response(render_template(
-            "partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks,
-            fmt_date=fmt_date))
-        response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
-        return response
+    if request.form.get("partial") == "settings":
+        return render_template(
+            "partials/settings_lanes.html",
+            project=proj,
+            lanes=lanes_in_order(proj.id),
+        )
 
-    return redirect(url_for("main.project", id=proj.id))
+    fragment = "#settings" if request.form.get("tab") == "settings" else ""
+    return redirect(url_for("main.project", id=proj.id) + fragment)
 
 
 # Tasks helpers
@@ -256,55 +248,23 @@ def lanes_in_order(project_id):
     return Lane.query.filter_by(project_id=project_id).order_by(Lane.sort_order).all()
 
 
-def resolve_lane(proj, lane_name, current_lane_id):
-    """Map the grid's Lane cell onto a lane row.
-
-    Lanes have no panel of their own any more: the cell is a free-text combo,
-    so the name typed there *is* the lane management UI.
-
-    * a name matching an existing lane (case-insensitively) selects it, and
-      adopts the spelling just typed so the swimlane label follows the grid;
-    * an unknown name creates a lane at the end of the swimlane order;
-    * an empty cell keeps the task's current lane - clearing the field must
-      never orphan a task.
-    """
-    name = (lane_name or "").strip()
-    if not name:
-        return Lane.query.filter_by(id=current_lane_id, project_id=proj.id).first()
-
-    lane = Lane.query.filter(
-        Lane.project_id == proj.id,
-        db.func.lower(Lane.name) == name.lower(),
-    ).first()
-    if lane is None:
-        max_order = db.session.query(db.func.max(Lane.sort_order)).filter_by(project_id=proj.id).scalar() or 0
-        lane = Lane(project_id=proj.id, name=name, sort_order=max_order + 1)
-        db.session.add(lane)
-        db.session.flush()
-    elif lane.name != name:
-        lane.name = name
-    return lane
+def members_in_order(project_id):
+    return TeamMember.query.filter_by(project_id=project_id).order_by(
+        db.func.lower(TeamMember.name), TeamMember.id
+    ).all()
 
 
-def prune_empty_lanes(project_id):
-    """Forget lanes that no task uses any more; returns their names.
+def requirements_in_order(project_id):
+    return Requirement.query.filter_by(project_id=project_id).order_by(
+        Requirement.code
+    ).all()
 
-    A lane only exists because someone typed it into a row, so a typo - or a
-    rename that moves the last task out - would otherwise leave a dead option
-    in every row's Lane list, with no panel left to clean it up. Call this
-    after the task changes are flushed. A lane that still holds tasks is never
-    touched: deleting it would orphan them.
-    """
-    db.session.flush()
-    used = {row[0] for row in db.session.query(Task.lane_id)
-                            .filter(Task.project_id == project_id)
-                            .group_by(Task.lane_id).all()}
-    removed = []
-    for lane in Lane.query.filter_by(project_id=project_id).all():
-        if lane.id not in used:
-            removed.append(lane.name)
-            db.session.delete(lane)
-    return removed
+
+def next_requirement_code(project_id):
+    count = Requirement.query.filter_by(project_id=project_id).count() + 1
+    while Requirement.query.filter_by(project_id=project_id, code=f"BR-{count:03d}").first():
+        count += 1
+    return f"BR-{count:03d}"
 
 
 def validate_task(task, project_id, exclude_task_id=None, check_schedule=True):
@@ -385,6 +345,54 @@ def project_date_stats(tasks):
     return total_effort, count_workdays(project_start, project_end), project_start, project_end
 
 
+@bp.route("/projects/<int:id>/requirements", methods=["POST"])
+def manage_requirements(id):
+    proj = Project.query.get_or_404(id)
+    action = request.form.get("action")
+    requirement_id = request.form.get("requirement_id", type=int)
+
+    if action == "add":
+        title = request.form.get("title", "").strip()
+        if not title:
+            return "Requirement title is required", 400
+        requirement = Requirement(
+            project_id=proj.id,
+            code=next_requirement_code(proj.id),
+            title=title,
+            description=request.form.get("description", "").strip() or None,
+            status=request.form.get("status", "open"),
+        )
+        db.session.add(requirement)
+    elif action == "toggle_done":
+        requirement = Requirement.query.filter_by(
+            id=requirement_id, project_id=proj.id
+        ).first_or_404()
+        requirement.status = "done" if request.form.get("done") else "open"
+    elif action in ("update", "delete"):
+        requirement = Requirement.query.filter_by(
+            id=requirement_id, project_id=proj.id
+        ).first_or_404()
+        if action == "delete":
+            db.session.delete(requirement)
+        else:
+            title = request.form.get("title", "").strip()
+            if not title:
+                return "Requirement title is required", 400
+            requirement.title = title
+            requirement.description = request.form.get("description", "").strip() or None
+    else:
+        return "Unknown requirement action", 400
+
+    db.session.commit()
+    if request.form.get("partial") == "requirements":
+        return render_template(
+            "partials/requirements.html",
+            project=proj,
+            requirements=requirements_in_order(proj.id),
+        )
+    return redirect(url_for("main.project", id=proj.id) + "#requirements")
+
+
 @bp.route("/projects/<int:id>", methods=["GET"])
 def project(id):
     proj = Project.query.get_or_404(id)
@@ -392,9 +400,79 @@ def project(id):
     tasks = Task.query.filter_by(project_id=proj.id).all()
     total_effort, total_duration, project_start, project_end = project_date_stats(tasks)
     return render_template("project.html", project=proj, lanes=lanes, tasks=tasks,
+                           members=members_in_order(proj.id),
+                           requirements=requirements_in_order(proj.id),
                            fmt_date=fmt_date, total_effort=total_effort,
                            total_duration=total_duration,
                            project_start=project_start, project_end=project_end)
+
+
+@bp.route("/projects/<int:id>/settings", methods=["POST"])
+def update_project_settings(id):
+    proj = Project.query.get_or_404(id)
+    name = request.form.get("name", "").strip()
+    if not name:
+        return "Project name is required", 400
+    if Project.query.filter(Project.name == name, Project.id != proj.id).first():
+        return "A project with that name already exists", 400
+
+    proj.name = name
+    proj.description = request.form.get("description", "").strip() or None
+    db.session.commit()
+    return redirect(url_for("main.project", id=proj.id) + "#settings")
+
+
+@bp.route("/projects/<int:id>/members", methods=["POST"])
+def manage_members(id):
+    proj = Project.query.get_or_404(id)
+    action = request.values.get("action")
+    member_id = request.form.get("member_id", type=int)
+
+    if action == "add":
+        name = request.form.get("name", "").strip()
+        if not name:
+            return "Team member name is required", 400
+        if TeamMember.query.filter(
+            TeamMember.project_id == proj.id,
+            db.func.lower(TeamMember.name) == name.lower(),
+        ).first():
+            return "That team member already exists", 400
+        db.session.add(TeamMember(project_id=proj.id, name=name))
+        db.session.commit()
+    elif action == "rename":
+        member = TeamMember.query.filter_by(id=member_id, project_id=proj.id).first_or_404()
+        name = request.form.get("name", "").strip()
+        if not name:
+            return "Team member name is required", 400
+        duplicate = TeamMember.query.filter(
+            TeamMember.project_id == proj.id,
+            TeamMember.id != member.id,
+            db.func.lower(TeamMember.name) == name.lower(),
+        ).first()
+        if duplicate:
+            return "That team member already exists", 400
+        old_name = member.name
+        member.name = name
+        for task in Task.query.filter_by(project_id=proj.id, responsible=old_name):
+            task.responsible = name
+        db.session.commit()
+    elif action == "delete":
+        member = TeamMember.query.filter_by(id=member_id, project_id=proj.id).first_or_404()
+        for task in Task.query.filter_by(project_id=proj.id, responsible=member.name):
+            task.responsible = None
+        db.session.delete(member)
+        db.session.commit()
+    else:
+        return "Unknown team member action", 400
+
+    if request.form.get("partial") == "settings":
+        return render_template(
+            "partials/settings_members.html",
+            project=proj,
+            members=members_in_order(proj.id),
+        )
+
+    return redirect(url_for("main.project", id=proj.id) + "#settings")
 
 
 @bp.route("/projects/<int:id>/tasks", methods=["POST"])
@@ -412,7 +490,12 @@ def create_task(id):
 
     lane_name = request.form.get("lane_name", "").strip()
     if lane_name:
-        lane = resolve_lane(proj, lane_name, None)
+        lane = Lane.query.filter(
+            Lane.project_id == proj.id,
+            db.func.lower(Lane.name) == lane_name.lower(),
+        ).first()
+        if lane is None:
+            return "Lane must be selected from the project's swimlanes", 400
     else:
         # Otherwise keep the new row in the lane of the last row, so clicking
         # "+ Add task" several times groups the tasks in the same swimlane.
@@ -441,7 +524,7 @@ def create_task(id):
 
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
+    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, members=members_in_order(proj.id), requirements=requirements_in_order(proj.id), fmt_date=fmt_date))
     response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
     return response
 
@@ -455,16 +538,22 @@ def update_task(task_id):
     # Gather new values
     new_name = request.form.get("name", task.name).strip()
 
-    # The grid posts the lane *name* typed into the combo; `lane_id` (the old
-    # dropdown) is still honoured when no lane_name field is present. Resolving
-    # a name can create or rename a lane, so it waits until validation passes.
+    # The grid posts the selected lane name. `lane_id` remains accepted for
+    # older clients that do not send the current dropdown field.
     lane_name_raw = request.form.get("lane_name")
+    lane_error = None
     if lane_name_raw is None:
         new_lane_name = None
         new_lane_id = request.form.get("lane_id", type=int) or task.lane_id
     else:
         new_lane_name = lane_name_raw.strip()
-        new_lane_id = task.lane_id
+        selected_lane = Lane.query.filter(
+            Lane.project_id == proj.id,
+            db.func.lower(Lane.name) == new_lane_name.lower(),
+        ).first() if new_lane_name else None
+        new_lane_id = selected_lane.id if selected_lane else task.lane_id
+        if new_lane_name and selected_lane is None:
+            lane_error = "Lane must be selected from the project's swimlanes."
 
     start_raw = request.form.get("start_date", "").strip()
     new_start = parse_date(start_raw) if start_raw else task.start_date
@@ -478,7 +567,19 @@ def update_task(task_id):
     else:
         new_dur = task.duration_days
 
-    new_resp = request.form.get("responsible", task.responsible or "").strip() or None
+    responsible_raw = request.form.get("responsible")
+    new_resp = (
+        responsible_raw.strip() if responsible_raw is not None
+        else (task.responsible or "")
+    ) or None
+    requirement_raw = request.form.get("requirement_id")
+    selected_requirement = task.requirements[0] if requirement_raw is None and task.requirements else None
+    if requirement_raw:
+        selected_requirement = Requirement.query.filter_by(
+            id=request.form.get("requirement_id", type=int), project_id=proj.id
+        ).first()
+        if selected_requirement is None:
+            lane_error = lane_error or "Business requirement must belong to this project."
     new_preds = request.form.get("predecessors", task.predecessors or "").strip() or None
     # Status dropdown: 'not_started' | 'started' | 'done'. If absent, keep current state.
     status_value = request.form.get("status")
@@ -509,6 +610,12 @@ def update_task(task_id):
     preds_changed = (new_preds or "") != (task.predecessors or "")
     check_schedule = start_moved_earlier or not preds_changed
     errors = validate_task(temp, proj.id, exclude_task_id=task.id, check_schedule=check_schedule)
+    if lane_error:
+        errors.append(lane_error)
+    if responsible_raw is not None and new_resp:
+        member_names = {member.name for member in members_in_order(proj.id)}
+        if new_resp not in member_names and new_resp != task.responsible:
+            errors.append("Responsible must be an available team member.")
 
     if errors:
         tasks = Task.query.filter_by(project_id=proj.id).all()
@@ -517,6 +624,8 @@ def update_task(task_id):
             project=proj,
             lanes=lanes,
             tasks=tasks,
+            members=members_in_order(proj.id),
+            requirements=requirements_in_order(proj.id),
             errors={task.id: errors},
             drafts={
                 task.id: {
@@ -526,6 +635,7 @@ def update_task(task_id):
                     "start_date": new_start if new_start else None,
                     "duration_days": new_dur if new_dur >= 0 else None,
                     "responsible": new_resp,
+                    "requirement_id": request.form.get("requirement_id", type=int),
                     "predecessors": new_preds,
                 }
             },
@@ -535,20 +645,14 @@ def update_task(task_id):
         return response, 422
 
     task.name = new_name
-    if new_lane_name is not None:
-        # Create / adopt the lane the user typed, then move the task into it.
-        new_lane_id = resolve_lane(proj, lane_name_raw, task.lane_id).id
     task.lane_id = new_lane_id
     task.start_date = new_start
     task.duration_days = new_dur
     task.responsible = new_resp
+    task.requirements = [selected_requirement] if selected_requirement else []
     task.predecessors = new_preds
     task.started = started_by_status
     task.done = done_by_status
-
-    # A lane the user just renamed out of existence (no tasks left) is dropped,
-    # so the combo never keeps offering a dead name.
-    prune_empty_lanes(proj.id)
 
     # Push successors forward so the whole chain stays consistent.
     recalculate_project(proj.id)
@@ -556,7 +660,7 @@ def update_task(task_id):
 
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
+    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, members=members_in_order(proj.id), requirements=requirements_in_order(proj.id), fmt_date=fmt_date))
     response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
     return response
 
@@ -585,7 +689,7 @@ def delete_task(task_id):
 
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, fmt_date=fmt_date))
+    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, members=members_in_order(proj.id), requirements=requirements_in_order(proj.id), fmt_date=fmt_date))
     response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
     return response
 

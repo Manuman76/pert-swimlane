@@ -143,7 +143,7 @@ dependency chain (only ever later, never earlier).
 | POST | `/projects/<id>/rename` | Rename project |
 | POST | `/projects/<id>/delete` | Delete project |
 | GET | `/projects/<id>` | Project page (grid + diagram) |
-| POST | `/projects/<id>/lanes` | Lane plumbing: create/rename/delete, and the grid's `move_up`/`move_down` order arrows (`partial=grid` answers with the grid rows) |
+| POST | `/projects/<id>/lanes` | Lane management: create, rename, delete, and reorder swimlanes from Project settings |
 | POST | `/projects/<id>/tasks` | Create task (auto code) |
 | POST | `/tasks/<id>/update` | Update task (validated) |
 | POST | `/tasks/<id>/delete` | Delete task (cleans predecessors) |
@@ -156,18 +156,10 @@ dependency chain (only ever later, never earlier).
   a 3px left bar for the status, and the delete button only on the active row.
   Diagram card styles are scoped under `.task-card` so they never leak into the
   Bootstrap panels (see the "Task grid" block in `app/static/css/style.css`).
-- Lanes have no panel: they live entirely in the grid's **Lane** cell, a text
-  combo (`<input name="lane_name">` + a `<datalist>` of the project's lanes).
-  Pick a name to assign it, type a new one to create the swimlane on save, and
-  clear the cell to keep the task where it is. A lane left without tasks is
-  pruned automatically, so typo'd names do not linger in every row's list, and
-  matching is case-insensitive (retyping `backend` adopts the spelling into the
-  existing lane instead of duplicating it). `+ Add task` on a project with no
-  lanes seeds `Lane 1`; otherwise the new row continues the lane of the last
-  row. Swimlane order is lane creation order (`sort_order`), and the two little
-  arrows that appear beside the Lane field on a hovered row move that task's
-  whole lane one position up or down - the response swaps only the grid rows
-  (`partial=grid`) and triggers a diagram redraw, so the page never reloads.
+- Lanes are managed from Project settings. The grid's **Lane** cell is a simple
+  dropdown of the project's existing swimlanes. `+ Add task` on a project with
+  no lanes seeds `Lane 1`; otherwise the new row continues the lane of the last
+  row. Swimlane order is controlled by the reorder buttons in Project settings.
 - Through that route: deleting a lane with tasks moves its tasks to the first
   remaining lane.
 - Deleting a task removes its code from all other tasks' predecessor lists.

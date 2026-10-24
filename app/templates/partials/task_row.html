@@ -7,6 +7,7 @@
   {% set t_start = draft.start_date %}
   {% set t_dur = draft.duration_days %}
   {% set t_resp = draft.responsible %}
+  {% set t_requirement_id = draft.requirement_id %}
   {% set t_preds = draft.predecessors %}
 {% else %}
   {% set t_name = task.name %}
@@ -15,22 +16,17 @@
   {% set t_start = task.start_date %}
   {% set t_dur = task.duration_days %}
   {% set t_resp = task.responsible %}
+  {% set t_requirement_id = task.requirements[0].id if task.requirements else none %}
   {% set t_preds = task.predecessors %}
 {% endif %}
-{# A rejected edit keeps the typed lane name on screen; otherwise the lane comes
-   from the project's lane list. #}
 {% if not t_lane_name %}
   {% set t_lane_name = lanes | selectattr('id', 'equalto', t_lane_id) | map(attribute='name') | first %}
 {% endif %}
-{# Position of this task's lane in swimlane order - drives the order arrows. #}
-{% set lane_ids = lanes | map(attribute='id') | list %}
-{% set t_lane_pos = lane_ids.index(t_lane_id) if t_lane_id in lane_ids else none %}
 {% set t_status = task.status %}
 {# Every cell edits the same hidden form below; the controls themselves are
    styled borderless by the "Task grid" rules in style.css, so a row reads as
    text until it is hovered or focused. Keep the markup height-neutral: one
-   control per cell, nothing stacked under it (the error note and the tiny
-   lane-order arrows beside their field are the exceptions). #}
+   control per cell, nothing stacked under it except the error note. #}
 <tr id="task-row-{{ task.id }}" class="status-{{ t_status }}{% if task_errors %} has-errors{% endif %}">
   <td class="task-code">{{ task.code }}</td>
   <td>
@@ -38,43 +34,16 @@
   </td>
   <td>
     <div class="lane-cell">
-      {# Lane combo: pick an existing swimlane from the list or type a new name -
-         saving creates that lane. Datalist lives per row because the whole table
-         body is swapped on every save, so a newly created lane is offered by the
-         other rows straight away. #}
-      <input form="task-form-{{ task.id }}" type="text" name="lane_name" value="{{ t_lane_name or '' }}"
-             list="lane-options-{{ task.id }}" placeholder="New or existing lane"
-             class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
-      <datalist id="lane-options-{{ task.id }}">
+      <select form="task-form-{{ task.id }}" name="lane_name"
+              class="form-select form-select-sm"
+              onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
         {% for lane in lanes %}
-        <option value="{{ lane.name }}"></option>
+        <option value="{{ lane.name }}" {% if t_lane_name == lane.name %}selected{% endif %}>{{ lane.name }}</option>
         {% endfor %}
-      </datalist>
-      {# Swimlane order lives here now that the lane panel is gone: the arrows
-         move this task's whole lane one position, and are disabled when the
-         lane is already first / last. #}
-      {% if t_lane_pos is not none %}
-      <span class="lane-move">
-        <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
-              hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
-              hx-target="#task-table-body" hx-swap="innerHTML">
-          <input type="hidden" name="lane_id" value="{{ t_lane_id }}">
-          <input type="hidden" name="action" value="move_up">
-          <input type="hidden" name="partial" value="grid">
-          <button class="btn-lane-move" type="submit" title="Move lane &quot;{{ t_lane_name }}&quot; up one swimlane"
-                  {% if t_lane_pos == 0 %}disabled{% endif %}>&#9650;</button>
-        </form>
-        <form method="POST" action="{{ url_for('main.manage_lanes', id=project.id) }}"
-              hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
-              hx-target="#task-table-body" hx-swap="innerHTML">
-          <input type="hidden" name="lane_id" value="{{ t_lane_id }}">
-          <input type="hidden" name="action" value="move_down">
-          <input type="hidden" name="partial" value="grid">
-          <button class="btn-lane-move" type="submit" title="Move lane &quot;{{ t_lane_name }}&quot; down one swimlane"
-                  {% if t_lane_pos + 1 >= lanes | length %}disabled{% endif %}>&#9660;</button>
-        </form>
-      </span>
-      {% endif %}
+        {% if t_lane_name and not (lanes | selectattr('name', 'equalto', t_lane_name) | list) %}
+        <option value="{{ t_lane_name }}" selected>{{ t_lane_name }} (not available)</option>
+        {% endif %}
+      </select>
     </div>
   </td>
   <td>
@@ -85,7 +54,29 @@
   </td>
   <td class="end-date">{{ fmt_date(task.end_date) }}</td>
   <td>
-    <input form="task-form-{{ task.id }}" type="text" name="responsible" value="{{ t_resp or '' }}" placeholder="&mdash;" class="form-control form-control-sm" onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+    <select form="task-form-{{ task.id }}" name="responsible" class="form-select form-select-sm"
+            onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+      <option value="">Unassigned</option>
+      {% if t_resp and not (members | selectattr('name', 'equalto', t_resp) | list) %}
+      <option value="{{ t_resp }}" selected>{{ t_resp }} (not in team)</option>
+      {% endif %}
+      {% for member in members %}
+      <option value="{{ member.name }}" {% if t_resp == member.name %}selected{% endif %}>{{ member.name }}</option>
+      {% endfor %}
+    </select>
+  </td>
+  <td>
+    <select form="task-form-{{ task.id }}" name="requirement_id"
+            class="form-select form-select-sm task-br-select"
+            onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
+      <option value="">No BR</option>
+      {% for requirement in requirements %}
+      <option value="{{ requirement.id }}"
+              data-br-code="{{ requirement.code }}"
+              data-br-choice="{{ requirement.code }} — {{ requirement.title }}"
+              {% if t_requirement_id == requirement.id %}selected{% endif %}>{{ requirement.code }}</option>
+      {% endfor %}
+    </select>
   </td>
   <td>
     <input form="task-form-{{ task.id }}" type="text" name="predecessors" value="{{ t_preds or '' }}" placeholder="&mdash;" class="form-control form-control-sm {% if task_errors %}is-invalid{% endif %}"

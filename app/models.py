@@ -3,15 +3,50 @@ from .db import db
 from .workdays import add_workdays
 
 
+requirement_tasks = db.Table(
+    "requirement_tasks",
+    db.Column("requirement_id", db.Integer, db.ForeignKey("requirements.id"), primary_key=True),
+    db.Column("task_id", db.Integer, db.ForeignKey("tasks.id"), primary_key=True),
+)
+
+
 class Project(db.Model):
     __tablename__ = "projects"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Text, nullable=False, unique=True)
+    description = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     lanes = db.relationship("Lane", backref="project", lazy=True, cascade="all, delete-orphan")
     tasks = db.relationship("Task", backref="project", lazy=True, cascade="all, delete-orphan")
+    members = db.relationship("TeamMember", backref="project", lazy=True, cascade="all, delete-orphan")
+    requirements = db.relationship("Requirement", backref="project", lazy=True, cascade="all, delete-orphan")
+
+
+class TeamMember(db.Model):
+    __tablename__ = "team_members"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    name = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("project_id", "name", name="uq_member_name"),)
+
+
+class Requirement(db.Model):
+    __tablename__ = "requirements"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    code = db.Column(db.Text, nullable=False)
+    title = db.Column(db.Text, nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    status = db.Column(db.Text, nullable=False, default="open")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    tasks = db.relationship("Task", secondary=requirement_tasks, back_populates="requirements")
+    __table_args__ = (db.UniqueConstraint("project_id", "code", name="uq_requirement_code"),)
 
 
 class Lane(db.Model):
@@ -43,6 +78,8 @@ class Task(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("project_id", "code", name="uq_task_code"),)
+
+    requirements = db.relationship("Requirement", secondary=requirement_tasks, back_populates="tasks")
 
     @property
     def end_date(self):

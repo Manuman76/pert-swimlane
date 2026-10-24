@@ -33,4 +33,9 @@ def _migrate_schema():
             db.session.execute(
                 text(f"ALTER TABLE tasks ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT 0")
             )
+
+    project_columns = {r[1] for r in db.session.execute(text("PRAGMA table_info(projects)"))}
+    if "description" not in project_columns:
+        db.session.execute(text("ALTER TABLE projects ADD COLUMN description TEXT"))
+
     db.session.commit()

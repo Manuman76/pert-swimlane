@@ -2,7 +2,7 @@ import pytest
 from datetime import date, timedelta
 from app import create_app
 from app.db import db
-from app.models import Project, Lane, Task
+from app.models import Project, Lane, Task, TeamMember, Requirement
 
 
 @pytest.fixture
@@ -71,6 +71,144 @@ def test_code_auto_assignment(client, app):
 
         tasks = Task.query.filter_by(project_id=proj.id).order_by(Task.code).all()
         assert [t.code for t in tasks] == ["001", "002"]
+
+
+def test_project_settings_update_and_tabs(client, app):
+    with app.app_context():
+        proj = _create_project("Settings project")
+        lane = _create_lane(proj, "Planning")
+        pid = proj.id
+
+    page = client.get(f"/projects/{pid}")
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert "Tasks &amp; diagram" in html
+    assert "Project settings" in html
+    assert "Planning" in html
+
+    response = client.post(f"/projects/{pid}/settings", data={
+        "name": "Updated project",
+        "description": "A project description",
+    })
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(f"/projects/{pid}#settings")
+
+    with app.app_context():
+        project = Project.query.get(pid)
+        assert project.name == "Updated project"
+        assert project.description == "A project description"
+
+
+def test_project_settings_manage_lanes_returns_to_settings(client, app):
+    with app.app_context():
+        proj = _create_project("Lane settings")
+        pid = proj.id
+
+    response = client.post(f"/projects/{pid}/lanes", data={
+        "action": "add", "name": "Engineering", "tab": "settings",
+    })
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(f"/projects/{pid}#settings")
+
+    with app.app_context():
+        assert Lane.query.filter_by(project_id=pid, name="Engineering").one()
+
+
+def test_team_members_are_managed_and_available_in_task_dropdown(client, app):
+    with app.app_context():
+        proj = _create_project("Team project")
+        lane = _create_lane(proj, "Build")
+        pid = proj.id
+        lane_id = lane.id
+
+    response = client.post(f"/projects/{pid}/members", data={
+        "action": "add", "name": "Alice",
+    })
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(f"/projects/{pid}#settings")
+
+    with app.app_context():
+        member = TeamMember.query.filter_by(project_id=pid, name="Alice").one()
+        member_id = member.id
+        task = Task(
+            project_id=pid, code="001", lane_id=lane_id, name="Build feature",
+            start_date=date(2017, 6, 1), duration_days=1,
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+
+    html = client.get(f"/projects/{pid}").get_data(as_text=True)
+    assert 'name="responsible"' in html
+    assert 'value="Alice"' in html
+    assert '>Alice</option>' in html
+
+    response = client.post(f"/tasks/{task_id}/update", data={
+        "responsible": "Alice",
+        "start_date": "1 Jun 2017",
+        "duration_days": "1",
+    })
+    assert response.status_code == 200
+
+    with app.app_context():
+        assert Task.query.get(task_id).responsible == "Alice"
+
+    response = client.post(f"/projects/{pid}/members", data={
+        "action": "rename", "member_id": member_id, "name": "Alicia",
+    })
+    assert response.status_code == 302
+    with app.app_context():
+        assert Task.query.get(task_id).responsible == "Alicia"
+
+
+def test_business_requirements_can_link_tasks(client, app):
+    with app.app_context():
+        proj = _create_project("Requirements project")
+        lane = _create_lane(proj, "Build")
+        task = Task(
+            project_id=proj.id, code="001", lane_id=lane.id, name="Build feature",
+            start_date=date(2017, 6, 1), duration_days=1,
+        )
+        db.session.add(task)
+        db.session.commit()
+        pid, task_id = proj.id, task.id
+
+    page = client.get(f"/projects/{pid}")
+    assert page.status_code == 200
+    assert "Business requirements" in page.get_data(as_text=True)
+
+    response = client.post(f"/projects/{pid}/requirements", data={
+        "action": "add",
+        "title": "The feature shall be auditable",
+        "description": "Record every change.",
+        "partial": "requirements",
+    })
+    assert response.status_code == 200
+
+    with app.app_context():
+        requirement = Requirement.query.filter_by(project_id=pid).one()
+        requirement_id = requirement.id
+
+    response = client.post(f"/tasks/{task_id}/update", data={
+        "requirement_id": str(requirement_id),
+        "start_date": "1 Jun 2017",
+        "duration_days": "1",
+    })
+    assert response.status_code == 200
+
+    response = client.post(f"/projects/{pid}/requirements", data={
+        "action": "toggle_done",
+        "requirement_id": requirement_id,
+        "done": "1",
+        "partial": "requirements",
+    })
+    assert response.status_code == 200
+    assert "001 — Build feature" in response.get_data(as_text=True)
+
+    with app.app_context():
+        requirement = Requirement.query.get(requirement_id)
+        assert requirement.status == "done"
+        assert [task.id for task in requirement.tasks] == [task_id]
 
 
 def test_validation_unknown_predecessor(client, app):

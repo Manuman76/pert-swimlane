@@ -11,6 +11,27 @@
      title="Download the tasks as a CSV file you can import into Jira">Export to Jira (CSV)</a>
 </div>
 
+<ul class="nav nav-tabs project-tabs mb-4" id="project-tabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="plan-tab" data-bs-toggle="tab"
+            data-bs-target="#plan-pane" type="button" role="tab"
+            aria-controls="plan-pane" aria-selected="true">Tasks &amp; diagram</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="settings-tab" data-bs-toggle="tab"
+            data-bs-target="#settings-pane" type="button" role="tab"
+            aria-controls="settings-pane" aria-selected="false">Project settings</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="requirements-tab" data-bs-toggle="tab"
+            data-bs-target="#requirements-pane" type="button" role="tab"
+            aria-controls="requirements-pane" aria-selected="false">Business requirements</button>
+  </li>
+</ul>
+
+<div class="tab-content" id="project-tab-content">
+<div class="tab-pane fade show active" id="plan-pane" role="tabpanel"
+     aria-labelledby="plan-tab" tabindex="0">
 <div class="row g-4">
 
   <div class="col-12">
@@ -52,11 +73,12 @@
               <tr>
                 <th style="width:52px">ID</th>
                 <th>Task name</th>
-                <th style="width:170px" title="Pick an existing swimlane from the list, or type a new name - saving creates it (and an unused lane disappears again). Hovering the row reveals arrows that move this lane's swimlane up or down.">Lane</th>
+                <th style="width:170px" title="Choose the task's configured swimlane.">Lane</th>
                 <th style="width:118px" title="Working day - a date entered on a weekend moves to the next Monday">Start</th>
                 <th style="width:74px" title="Number of working days (Monday to Friday)">Days</th>
                 <th style="width:118px" title="First day of the next task; Saturday and Sunday are skipped">End</th>
                 <th>Responsible</th>
+                <th>BR</th>
                 <th style="width:130px">Predecessors</th>
                 <th style="width:126px">Status</th>
                 <th style="width:36px"><span class="visually-hidden">Actions</span></th>
@@ -91,7 +113,7 @@
       <div class="card-body p-0">
         <div id="diagram-container"
              hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
-             hx-trigger="load, refreshDiagram from:body"
+             hx-trigger="load, every 30s, refreshDiagram from:body"
              hx-swap="innerHTML">
           <div class="p-4 text-muted">Loading diagram…</div>
         </div>
@@ -99,8 +121,172 @@
     </div>
   </div>
 </div>
+</div>
+
+<div class="tab-pane fade" id="settings-pane" role="tabpanel"
+     aria-labelledby="settings-tab" tabindex="0">
+  <div class="row g-4">
+    <div class="col-12 col-xl-7">
+      <div class="card shadow-sm">
+        <div class="card-header panel-header"><strong>Project details</strong></div>
+        <div class="card-body">
+          <form method="POST" action="{{ url_for('main.update_project_settings', id=project.id) }}">
+            <div class="mb-3">
+              <label class="form-label" for="project-name">Name</label>
+              <input class="form-control" id="project-name" name="name"
+                     value="{{ project.name }}" required maxlength="200">
+            </div>
+            <div class="mb-3">
+              <label class="form-label" for="project-description">Description</label>
+              <textarea class="form-control" id="project-description" name="description"
+                        rows="5" placeholder="What is this project about?">{{ project.description or "" }}</textarea>
+            </div>
+            <button class="btn btn-primary" type="submit">Save details</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-5">
+      <div class="card shadow-sm">
+        <div class="card-header panel-header d-flex justify-content-between align-items-center">
+          <strong>Swimlanes</strong>
+          <span class="text-muted small">Used to group tasks</span>
+        </div>
+        <div class="card-body">
+          <form class="row g-2 mb-3" method="POST"
+                action="{{ url_for('main.manage_lanes', id=project.id) }}"
+                hx-post="{{ url_for('main.manage_lanes', id=project.id) }}"
+                hx-target="#settings-lanes-list" hx-swap="innerHTML"
+                data-lane-add="true">
+            <input type="hidden" name="action" value="add">
+            <input type="hidden" name="tab" value="settings">
+            <input type="hidden" name="partial" value="settings">
+            <div class="col">
+              <label class="visually-hidden" for="new-lane-name">New swimlane name</label>
+              <input class="form-control" id="new-lane-name" name="name"
+                     placeholder="New swimlane name" required>
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-outline-success" type="submit">Add</button>
+            </div>
+          </form>
+
+          <div id="settings-lanes-list">
+            {% include "partials/settings_lanes.html" %}
+          </div>
+        </div>
+      </div>
+      <div class="card shadow-sm mt-4">
+        <div class="card-header panel-header d-flex justify-content-between align-items-center">
+          <strong>Team members</strong>
+          <span class="text-muted small">Available for task assignment</span>
+        </div>
+        <div class="card-body">
+          <form class="row g-2 mb-3" method="POST"
+                action="{{ url_for('main.manage_members', id=project.id) }}"
+                hx-post="{{ url_for('main.manage_members', id=project.id) }}"
+                hx-target="#settings-members-list" hx-swap="innerHTML"
+                data-member-add="true">
+            <input type="hidden" name="action" value="add">
+            <input type="hidden" name="partial" value="settings">
+            <div class="col">
+              <label class="visually-hidden" for="new-member-name">New team member name</label>
+              <input class="form-control" id="new-member-name" name="name"
+                     placeholder="New team member name" required>
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-outline-success" type="submit">Add</button>
+            </div>
+          </form>
+
+          <div id="settings-members-list">
+            {% include "partials/settings_members.html" %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tab-pane fade" id="requirements-pane" role="tabpanel"
+     aria-labelledby="requirements-tab" tabindex="0">
+  <div class="card shadow-sm">
+    <div class="card-header panel-header"><strong>Business requirements</strong></div>
+    <div class="card-body">
+      <form class="requirement-add-form" method="POST"
+            action="{{ url_for('main.manage_requirements', id=project.id) }}"
+            hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
+            data-requirement-add="true"
+            hx-target="#requirements-list" hx-swap="innerHTML">
+        <input type="hidden" name="action" value="add">
+        <input type="hidden" name="partial" value="requirements">
+        <input id="new-requirement-title" class="form-control form-control-sm" name="title"
+               placeholder="New requirement title" required>
+        <textarea class="form-control form-control-sm" name="description" rows="1"
+                  placeholder="Description"></textarea>
+        <button class="btn btn-sm btn-outline-success" type="submit">Add requirement</button>
+      </form>
+      <div class="requirements-header">
+        <span>ID</span><span>Title</span><span>Description</span><span>Covered</span>
+        <span>Linked tasks</span><span></span><span></span>
+      </div>
+      <div id="requirements-list">
+        {% include "partials/requirements.html" %}
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
 
 <script>
+// Keep the selected project tab addressable so settings forms can return to
+// the settings view and the browser Back button behaves naturally.
+(function () {
+  const tabButtons = document.querySelectorAll('#project-tabs [data-bs-toggle="tab"]');
+  const tabForHash = {
+    '#settings': '#settings-tab',
+    '#requirements': '#requirements-tab',
+    '#plan': '#plan-tab'
+  };
+
+  function activateFromHash() {
+    const selector = tabForHash[window.location.hash] || '#plan-tab';
+    const button = document.querySelector(selector);
+    if (button) bootstrap.Tab.getOrCreateInstance(button).show();
+  }
+
+  tabButtons.forEach(function (button) {
+    button.addEventListener('shown.bs.tab', function (event) {
+      const hash = event.target.id === 'settings-tab'
+        ? '#settings'
+        : event.target.id === 'requirements-tab' ? '#requirements' : '#plan';
+      history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+    });
+  });
+  if (window.bootstrap) {
+    activateFromHash();
+  } else {
+    window.addEventListener('load', activateFromHash);
+  }
+  window.addEventListener('hashchange', activateFromHash);
+})();
+
+document.body.addEventListener('htmx:afterRequest', function (event) {
+  const form = event.detail.elt;
+  if (!event.detail.successful || !form) return;
+  const inputId = form.dataset.memberAdd === 'true'
+    ? 'new-member-name'
+    : form.dataset.laneAdd === 'true'
+      ? 'new-lane-name'
+      : form.dataset.requirementAdd === 'true' ? 'new-requirement-title' : null;
+  if (!inputId) return;
+  form.reset();
+  const input = document.getElementById(inputId);
+  if (input) input.focus();
+});
+
 // Diagram refresh is now handled via HX-Trigger-After-Swap headers from task endpoints.
 
 // The task update endpoint returns 422 with the offending grid rows (including
@@ -112,6 +298,53 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
     evt.detail.isError = false;
   }
 });
+
+// Native <select> cannot show different labels when open vs closed. Expand each
+// BR option to "ID — title" while the list is open; show only the BR ID in the grid.
+(function () {
+  function expandBrSelect(select) {
+    Array.prototype.forEach.call(select.options, function (opt) {
+      if (opt.dataset.brChoice) opt.textContent = opt.dataset.brChoice;
+    });
+  }
+
+  function collapseBrSelect(select) {
+    var selected = select.options[select.selectedIndex];
+    if (selected && selected.dataset.brCode) {
+      selected.textContent = selected.dataset.brCode;
+    }
+  }
+
+  function initBrSelect(select) {
+    if (select.dataset.brSelectInit === 'true') return;
+    select.dataset.brSelectInit = 'true';
+    collapseBrSelect(select);
+    select.addEventListener('mousedown', function () { expandBrSelect(select); });
+    select.addEventListener('focus', function () { expandBrSelect(select); });
+    select.addEventListener('change', function () { collapseBrSelect(select); });
+    select.addEventListener('blur', function () { collapseBrSelect(select); });
+  }
+
+  function initBrSelects(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    var selects = scope === document
+      ? document.querySelectorAll('#task-table .task-br-select')
+      : scope.querySelectorAll('.task-br-select');
+    Array.prototype.forEach.call(selects, initBrSelect);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { initBrSelects(); });
+  } else {
+    initBrSelects();
+  }
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    var target = evt.detail.target;
+    if (target.id === 'task-table-body' || target.querySelector('.task-br-select')) {
+      initBrSelects(target);
+    }
+  });
+})();
 
 // Export the swimlane diagram as a PNG. dom-to-image (unlike html2canvas)
 // renders the inline SVG arrow overlay. The library is loaded lazily on the

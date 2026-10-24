@@ -1,0 +1,53 @@
+{% for requirement in requirements %}
+<div class="requirement-row{% if requirement.status == 'done' %} requirement-row--done{% endif %}">
+<form id="requirement-update-{{ requirement.id }}" method="POST"
+      action="{{ url_for('main.manage_requirements', id=project.id) }}"
+      hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
+      hx-target="#requirements-list" hx-swap="innerHTML">
+  <input type="hidden" name="action" value="update">
+  <input type="hidden" name="requirement_id" value="{{ requirement.id }}">
+  <input type="hidden" name="partial" value="requirements">
+  <div class="requirement-code">{{ requirement.code }}</div>
+  <input class="form-control form-control-sm" name="title" value="{{ requirement.title }}"
+         aria-label="Requirement title" required>
+  <textarea class="form-control form-control-sm" name="description" rows="1"
+            placeholder="Description">{{ requirement.description or "" }}</textarea>
+</form>
+<form method="POST"
+      action="{{ url_for('main.manage_requirements', id=project.id) }}"
+      hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
+      hx-target="#requirements-list" hx-swap="innerHTML">
+  <input type="hidden" name="action" value="toggle_done">
+  <input type="hidden" name="requirement_id" value="{{ requirement.id }}">
+  <input type="hidden" name="partial" value="requirements">
+  <input class="form-check-input requirement-done-check" type="checkbox" name="done" value="1"
+         aria-label="Mark requirement covered"
+         {% if requirement.status == "done" %}checked{% endif %}
+         onchange="this.form.requestSubmit()">
+</form>
+<div class="requirement-linked-tasks" aria-label="Linked tasks">
+  {% set linked = requirement.tasks|sort(attribute='code') %}
+  {% if linked %}
+  {% for task in linked %}
+  <span class="requirement-linked-task">{{ task.code }} — {{ task.name }}</span>{% if not loop.last %}, {% endif %}
+  {% endfor %}
+  {% else %}
+  <span class="text-muted">—</span>
+  {% endif %}
+</div>
+<button class="btn btn-sm btn-outline-secondary" type="submit"
+        form="requirement-update-{{ requirement.id }}">Save</button>
+<form method="POST"
+      action="{{ url_for('main.manage_requirements', id=project.id) }}"
+      hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
+      hx-target="#requirements-list" hx-swap="innerHTML"
+      onsubmit="return confirm('Delete this requirement?');">
+  <input type="hidden" name="action" value="delete">
+  <input type="hidden" name="requirement_id" value="{{ requirement.id }}">
+  <input type="hidden" name="partial" value="requirements">
+  <button class="btn btn-sm btn-outline-danger" type="submit">×</button>
+</form>
+</div>
+{% else %}
+<p class="text-muted small mb-0">No business requirements yet.</p>
+{% endfor %}
