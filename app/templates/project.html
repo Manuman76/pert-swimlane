@@ -7,6 +7,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2 class="mb-0">{{ project.name }}</h2>
   <a href="{{ url_for('main.export_jira_csv', id=project.id) }}"
+     id="btn-export-jira-csv"
      class="btn btn-sm btn-outline-secondary"
      title="Download the tasks as a CSV file you can import into Jira">Export to Jira (CSV)</a>
 </div>
@@ -346,6 +347,65 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
   });
 })();
 
+// Desktop (pywebview) helpers: WebView2 blocks ordinary browser downloads
+// unless ALLOW_DOWNLOADS is on, and <a download> with data: URLs often never
+// triggers a download at all. Prefer the native Save As bridge when present.
+function desktopSaveApi() {
+  return window.pywebview && window.pywebview.api && window.pywebview.api.save_bytes
+    ? window.pywebview.api
+    : null;
+}
+
+async function blobToBase64(blob) {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function saveBlobDesktopOrBrowser(blob, filename) {
+  const api = desktopSaveApi();
+  if (api) {
+    const result = await api.save_bytes(filename, await blobToBase64(blob));
+    if (result && result.cancelled) return;
+    if (result && result.ok === false) {
+      throw new Error(result.error || 'save failed');
+    }
+    return;
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(objectUrl);
+}
+
+// CSV export: in the desktop shell, fetch bytes and use the native Save dialog
+// so we do not depend on WebView2's download manager alone.
+(function () {
+  const link = document.getElementById('btn-export-jira-csv');
+  if (!link) return;
+  link.addEventListener('click', async function (evt) {
+    if (!desktopSaveApi()) return;
+    evt.preventDefault();
+    try {
+      const resp = await fetch(link.href);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const disposition = resp.headers.get('Content-Disposition') || '';
+      const match = /filename="?([^";]+)"?/i.exec(disposition);
+      const filename = match ? match[1] : 'jira-import.csv';
+      await saveBlobDesktopOrBrowser(await resp.blob(), filename);
+    } catch (err) {
+      alert('Export failed: ' + err.message);
+    }
+  });
+})();
+
 // Export the swimlane diagram as a PNG. dom-to-image (unlike html2canvas)
 // renders the inline SVG arrow overlay. The library is loaded lazily on the
 // first export so users who never export do not pay for the download.
@@ -359,7 +419,7 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
     if (domToImage) return Promise.resolve(domToImage);
     return new Promise(function (resolve, reject) {
       const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/dom-to-image-more@3.5.0/dist/dom-to-image-more.min.js';
+      s.src = {{ url_for('static', filename='vendor/dom-to-image-more.min.js') | tojson }};
       s.onload = function () { domToImage = window.domtoimage; resolve(domToImage); };
       s.onerror = function () { reject(new Error('could not load export library')); };
       document.head.appendChild(s);
@@ -393,10 +453,9 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = (slug || 'diagram') + '.png';
-      a.click();
+      const filename = (slug || 'diagram') + '.png';
+      const resp = await fetch(dataUrl);
+      await saveBlobDesktopOrBrowser(await resp.blob(), filename);
     } catch (err) {
       alert('Export failed: ' + err.message);
     } finally {

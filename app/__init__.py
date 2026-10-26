@@ -1,10 +1,36 @@
+import os
+import sys
+from pathlib import Path
+
 from flask import Flask
 from sqlalchemy import text
+
 from .db import db
 
 
+def _is_frozen() -> bool:
+    return getattr(sys, "frozen", False)
+
+
+def _user_data_dir() -> Path:
+    if sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    else:
+        root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    path = root / "PERT Swimlane"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def create_app(config=None):
-    app = Flask(__name__)
+    flask_kwargs = {}
+    if _is_frozen():
+        base = Path(sys._MEIPASS)
+        flask_kwargs["template_folder"] = str(base / "app" / "templates")
+        flask_kwargs["static_folder"] = str(base / "app" / "static")
+        flask_kwargs["instance_path"] = str(_user_data_dir())
+
+    app = Flask(__name__, **flask_kwargs)
     app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///pert.db"
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SECRET_KEY"] = "pert-secret-key"

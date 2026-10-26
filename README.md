@@ -9,22 +9,51 @@ A single-user web app for building PERT-style swimlane diagrams. The grid editor
 - HTMX for interactivity
 - Bootstrap 5 for UI
 - SQLite via Flask-SQLAlchemy
+- pywebview (optional desktop window)
 - Gunicorn (optional, for running behind a terminal session)
 - Pure HTML/CSS + inline SVG for the diagram (no chart libraries)
 
 ## Setup
 
 ```bash
-# Create and activate a virtual environment
+# Create and activate a virtual environment (do not install packages globally)
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
+# Install dependencies into the venv
 pip install -r requirements.txt
 
-# Run the app
+# Run in the browser (LAN-capable)
 python run.py
 ```
+
+### Desktop app (dev)
+
+With the same venv activated:
+
+```bash
+python desktop.py
+```
+
+This starts Flask on `127.0.0.1` and opens a native window via pywebview.
+On Windows, Microsoft Edge WebView2 is required (usually already installed).
+
+### Desktop build (ship to users)
+
+From the project root, with the project `venv` present:
+
+```powershell
+.\build_desktop.ps1
+```
+
+That installs build deps into the venv and produces:
+
+- `dist\PERTSwimlane\PERTSwimlane.exe` (folder build)
+- `dist\PERTSwimlane.zip` (ready to send)
+
+Users unzip and double-click `PERTSwimlane.exe` — no Python install required.
+Data is stored under `%LOCALAPPDATA%\PERT Swimlane\`. Recipients still need
+WebView2 (preinstalled on most Windows 10/11 machines).
 
 Or with Flask CLI:
 
