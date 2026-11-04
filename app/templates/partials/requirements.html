@@ -12,6 +12,11 @@
          aria-label="Requirement title" required>
   <textarea class="form-control form-control-sm" name="description" rows="1"
             placeholder="Description">{{ requirement.description or "" }}</textarea>
+  <select class="form-select form-select-sm" name="moscow" aria-label="MoSCoW category">
+    {% for value, label in moscow_choices %}
+    <option value="{{ value }}"{% if requirement.moscow == value %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
 </form>
 <form method="POST"
       action="{{ url_for('main.manage_requirements', id=project.id) }}"

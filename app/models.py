@@ -34,6 +34,17 @@ class TeamMember(db.Model):
     __table_args__ = (db.UniqueConstraint("project_id", "name", name="uq_member_name"),)
 
 
+# MoSCoW priority for business requirements (stored value -> label).
+MOSCOW_CHOICES = (
+    ("must", "Must have"),
+    ("should", "Should have"),
+    ("could", "Could have"),
+    ("wont", "Won't have"),
+)
+MOSCOW_VALUES = {value for value, _label in MOSCOW_CHOICES}
+DEFAULT_MOSCOW = "must"
+
+
 class Requirement(db.Model):
     __tablename__ = "requirements"
     id = db.Column(db.Integer, primary_key=True)
@@ -41,6 +52,7 @@ class Requirement(db.Model):
     code = db.Column(db.Text, nullable=False)
     title = db.Column(db.Text, nullable=False)
     description = db.Column(db.Text, nullable=True)
+    moscow = db.Column(db.Text, nullable=False, default=DEFAULT_MOSCOW)
     status = db.Column(db.Text, nullable=False, default="open")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

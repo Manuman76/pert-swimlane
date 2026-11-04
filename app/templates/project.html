@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }}{% endblock %}
+{% block extra_head %}
+<link href="{{ url_for('static', filename='vendor/quill.snow.css') }}" rel="stylesheet">
+{% endblock %}
 {% block navbar_right %}
 <a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-light">&larr; Back to projects</a>
 {% endblock %}
@@ -138,9 +141,10 @@
                      value="{{ project.name }}" required maxlength="200">
             </div>
             <div class="mb-3">
-              <label class="form-label" for="project-description">Description</label>
-              <textarea class="form-control" id="project-description" name="description"
-                        rows="5" placeholder="What is this project about?">{{ project.description or "" }}</textarea>
+              <label class="form-label" for="project-description-editor">Description</label>
+              <div id="project-description-editor" class="project-description-editor"></div>
+              <input type="hidden" id="project-description" name="description" value="">
+              <script type="application/json" id="project-description-initial">{{ (project.description or "") | tojson }}</script>
             </div>
             <button class="btn btn-primary" type="submit">Save details</button>
           </form>
@@ -226,11 +230,16 @@
                placeholder="New requirement title" required>
         <textarea class="form-control form-control-sm" name="description" rows="1"
                   placeholder="Description"></textarea>
+        <select class="form-select form-select-sm" name="moscow" aria-label="MoSCoW category">
+          {% for value, label in moscow_choices %}
+          <option value="{{ value }}"{% if value == 'must' %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
         <button class="btn btn-sm btn-outline-success" type="submit">Add requirement</button>
       </form>
       <div class="requirements-header">
-        <span>ID</span><span>Title</span><span>Description</span><span>Covered</span>
-        <span>Linked tasks</span><span></span><span></span>
+        <span>ID</span><span>Title</span><span>Description</span><span>MoSCoW</span>
+        <span>Covered</span><span>Linked tasks</span><span></span><span></span>
       </div>
       <div id="requirements-list">
         {% include "partials/requirements.html" %}
@@ -463,6 +472,54 @@ async function saveBlobDesktopOrBrowser(blob, filename) {
       refreshButton();
     }
   });
+})();
+</script>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='vendor/quill.js') }}"></script>
+<script>
+(function () {
+  const editorHost = document.getElementById('project-description-editor');
+  const hidden = document.getElementById('project-description');
+  const form = editorHost && editorHost.closest('form');
+  const initialEl = document.getElementById('project-description-initial');
+  if (!editorHost || !hidden || !form || typeof Quill === 'undefined') return;
+
+  const quill = new Quill(editorHost, {
+    theme: 'snow',
+    placeholder: 'What is this project about?',
+    modules: {
+      toolbar: [
+        [{ header: [1, 2, false] }],
+        ['bold', 'italic', 'underline'],
+        [{ list: 'ordered' }, { list: 'bullet' }],
+        ['link'],
+        ['clean']
+      ]
+    }
+  });
+
+  let initial = '';
+  try {
+    initial = initialEl ? JSON.parse(initialEl.textContent) : '';
+  } catch (err) {
+    initial = '';
+  }
+  if (initial) {
+    if (/<[a-z][\s\S]*>/i.test(initial)) {
+      quill.clipboard.dangerouslyPasteHTML(initial);
+    } else {
+      quill.setText(initial);
+    }
+  }
+
+  function syncHidden() {
+    const text = quill.getText().replace(/\u00a0/g, ' ').trim();
+    hidden.value = text ? quill.getSemanticHTML() : '';
+  }
+
+  form.addEventListener('submit', syncHidden);
 })();
 </script>
 {% endblock %}

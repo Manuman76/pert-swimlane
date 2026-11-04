@@ -3,10 +3,24 @@ from collections import deque
 
 from flask import Blueprint, render_template, request, redirect, url_for, abort, make_response
 from .db import db
-from .models import Project, Lane, Task, TeamMember, Requirement
+from .models import (
+    Project,
+    Lane,
+    Task,
+    TeamMember,
+    Requirement,
+    MOSCOW_CHOICES,
+    MOSCOW_VALUES,
+    DEFAULT_MOSCOW,
+)
 from .workdays import count_workdays, next_workday
 
 bp = Blueprint("main", __name__)
+
+
+def _parse_moscow(raw):
+    value = (raw or "").strip().lower()
+    return value if value in MOSCOW_VALUES else DEFAULT_MOSCOW
 
 
 def fmt_date(d):
@@ -28,6 +42,27 @@ def parse_date(s):
         except ValueError:
             continue
     return None
+
+
+def _normalize_rich_text(value):
+    """Store Quill HTML, treating blank editor content as NULL."""
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    # Quill empty document variants
+    stripped = (
+        text.replace("&nbsp;", " ")
+        .replace("<p><br></p>", "")
+        .replace("<p></p>", "")
+        .replace("<br>", "")
+        .replace("<br/>", "")
+        .strip()
+    )
+    if not stripped or not stripped.replace("<p>", "").replace("</p>", "").strip():
+        return None
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +395,7 @@ def manage_requirements(id):
             code=next_requirement_code(proj.id),
             title=title,
             description=request.form.get("description", "").strip() or None,
+            moscow=_parse_moscow(request.form.get("moscow")),
             status=request.form.get("status", "open"),
         )
         db.session.add(requirement)
@@ -380,6 +416,7 @@ def manage_requirements(id):
                 return "Requirement title is required", 400
             requirement.title = title
             requirement.description = request.form.get("description", "").strip() or None
+            requirement.moscow = _parse_moscow(request.form.get("moscow"))
     else:
         return "Unknown requirement action", 400
 
@@ -389,6 +426,7 @@ def manage_requirements(id):
             "partials/requirements.html",
             project=proj,
             requirements=requirements_in_order(proj.id),
+            moscow_choices=MOSCOW_CHOICES,
         )
     return redirect(url_for("main.project", id=proj.id) + "#requirements")
 
@@ -402,6 +440,7 @@ def project(id):
     return render_template("project.html", project=proj, lanes=lanes, tasks=tasks,
                            members=members_in_order(proj.id),
                            requirements=requirements_in_order(proj.id),
+                           moscow_choices=MOSCOW_CHOICES,
                            fmt_date=fmt_date, total_effort=total_effort,
                            total_duration=total_duration,
                            project_start=project_start, project_end=project_end)
@@ -417,7 +456,7 @@ def update_project_settings(id):
         return "A project with that name already exists", 400
 
     proj.name = name
-    proj.description = request.form.get("description", "").strip() or None
+    proj.description = _normalize_rich_text(request.form.get("description", ""))
     db.session.commit()
     return redirect(url_for("main.project", id=proj.id) + "#settings")
 

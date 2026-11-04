@@ -98,6 +98,24 @@ def test_project_settings_update_and_tabs(client, app):
         assert project.name == "Updated project"
         assert project.description == "A project description"
 
+    rich = client.post(f"/projects/{pid}/settings", data={
+        "name": "Updated project",
+        "description": "<p>A <strong>rich</strong> description</p>",
+    })
+    assert rich.status_code == 302
+    with app.app_context():
+        project = Project.query.get(pid)
+        assert project.description == "<p>A <strong>rich</strong> description</p>"
+
+    empty = client.post(f"/projects/{pid}/settings", data={
+        "name": "Updated project",
+        "description": "<p><br></p>",
+    })
+    assert empty.status_code == 302
+    with app.app_context():
+        project = Project.query.get(pid)
+        assert project.description is None
+
 
 def test_project_settings_manage_lanes_returns_to_settings(client, app):
     with app.app_context():
@@ -175,12 +193,17 @@ def test_business_requirements_can_link_tasks(client, app):
 
     page = client.get(f"/projects/{pid}")
     assert page.status_code == 200
-    assert "Business requirements" in page.get_data(as_text=True)
+    html = page.get_data(as_text=True)
+    assert "Business requirements" in html
+    assert "MoSCoW" in html
+    assert "Must have" in html
+    assert "Won" in html and "t have" in html
 
     response = client.post(f"/projects/{pid}/requirements", data={
         "action": "add",
         "title": "The feature shall be auditable",
         "description": "Record every change.",
+        "moscow": "should",
         "partial": "requirements",
     })
     assert response.status_code == 200
@@ -188,6 +211,19 @@ def test_business_requirements_can_link_tasks(client, app):
     with app.app_context():
         requirement = Requirement.query.filter_by(project_id=pid).one()
         requirement_id = requirement.id
+        assert requirement.moscow == "should"
+
+    response = client.post(f"/projects/{pid}/requirements", data={
+        "action": "update",
+        "requirement_id": requirement_id,
+        "title": "The feature shall be auditable",
+        "description": "Record every change.",
+        "moscow": "could",
+        "partial": "requirements",
+    })
+    assert response.status_code == 200
+    with app.app_context():
+        assert Requirement.query.get(requirement_id).moscow == "could"
 
     response = client.post(f"/tasks/{task_id}/update", data={
         "requirement_id": str(requirement_id),

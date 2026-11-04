@@ -64,4 +64,14 @@ def _migrate_schema():
     if "description" not in project_columns:
         db.session.execute(text("ALTER TABLE projects ADD COLUMN description TEXT"))
 
+    requirement_columns = {
+        r[1] for r in db.session.execute(text("PRAGMA table_info(requirements)"))
+    }
+    if requirement_columns and "moscow" not in requirement_columns:
+        db.session.execute(
+            text(
+                "ALTER TABLE requirements ADD COLUMN moscow TEXT NOT NULL DEFAULT 'must'"
+            )
+        )
+
     db.session.commit()
