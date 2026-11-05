@@ -1,10 +1,13 @@
 """Settings routes: lanes and team members management."""
 
-from flask import render_template, request, redirect, url_for
+from datetime import datetime, date
+from flask import render_template, request, redirect, url_for, make_response
 
 from ..db import db
-from ..models import Project, Lane, TeamMember, Task
+from ..models import Project, Lane, TeamMember, Task, Holiday
 from ..services.common import lanes_in_order, members_in_order
+from ..services.scheduler import recalculate_project
+from ..workdays import WEEKDAY_NAMES
 from .context import bp
 
 
@@ -193,3 +196,106 @@ def manage_members(id):
         )
 
     return redirect(url_for("main.project", id=proj.id) + "#settings")
+
+
+# ---------------------------------------------------------------------------
+# Calendar & Holidays
+# ---------------------------------------------------------------------------
+
+WEEKDAY_CHOICES = [(i, WEEKDAY_NAMES[i]) for i in range(7)]
+
+
+def parse_holiday_date(raw, default_year=None):
+    if not raw or not raw.strip():
+        return None
+    s = raw.strip()
+    year = default_year or date.today().year
+    for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y", "%b %d %Y", "%B %d %Y"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            pass
+    for fmt in ("%b %d", "%d %b", "%B %d", "%d %B"):
+        try:
+            parsed = datetime.strptime(s, fmt).date()
+            return parsed.replace(year=year)
+        except ValueError:
+            pass
+    return None
+
+
+@bp.route("/projects/<int:id>/workdays", methods=["POST"])
+def update_project_workdays(id):
+    proj = Project.query.get_or_404(id)
+    raw_days = request.form.getlist("workdays")
+    valid_nums = []
+    for d_str in raw_days:
+        try:
+            val = int(d_str)
+            if 0 <= val <= 6 and val not in valid_nums:
+                valid_nums.append(val)
+        except (ValueError, TypeError):
+            continue
+
+    if not valid_nums:
+        # Prevent completely empty schedule calendar; default to Mon-Fri
+        valid_nums = [0, 1, 2, 3, 4]
+
+    valid_nums.sort()
+    proj.workdays = ",".join(str(n) for n in valid_nums)
+    db.session.commit()
+
+    recalculate_project(proj.id)
+    db.session.commit()
+
+    if request.headers.get("HX-Request") or request.form.get("partial") == "settings":
+        response = make_response(render_template(
+            "partials/settings_workdays.html",
+            project=proj,
+            weekday_choices=WEEKDAY_CHOICES,
+        ))
+        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid"
+        return response
+
+    return redirect(url_for("main.project", id=proj.id) + "#settings")
+
+
+@bp.route("/projects/<int:id>/holidays", methods=["POST"])
+def manage_holidays(id):
+    proj = Project.query.get_or_404(id)
+    action = request.form.get("action", "add")
+
+    if action == "add":
+        name = request.form.get("name", "").strip()
+        date_raw = request.form.get("date", "").strip()
+        if not name:
+            return "Holiday name is required", 400
+        holiday_date = parse_holiday_date(date_raw)
+        if not holiday_date:
+            return "A valid holiday date is required (e.g. 2026-12-25 or Dec 25)", 400
+
+        existing = Holiday.query.filter_by(project_id=proj.id, date=holiday_date).first()
+        if existing:
+            existing.name = name
+        else:
+            db.session.add(Holiday(project_id=proj.id, date=holiday_date, name=name))
+        db.session.commit()
+    elif action == "delete":
+        holiday_id = request.form.get("holiday_id", type=int)
+        h = Holiday.query.filter_by(id=holiday_id, project_id=proj.id).first_or_404()
+        db.session.delete(h)
+        db.session.commit()
+
+    recalculate_project(proj.id)
+    db.session.commit()
+
+    if request.headers.get("HX-Request") or request.form.get("partial") == "settings":
+        response = make_response(render_template(
+            "partials/settings_holidays.html",
+            project=proj,
+        ))
+        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid"
+        return response
+
+    return redirect(url_for("main.project", id=proj.id) + "#settings")
+

@@ -1,46 +1,377 @@
 {% extends "base.html" %}
-{% block title %}Projects{% endblock %}
+{% block title %}Projects Dashboard - PERT Swimlane{% endblock %}
+
 {% block content %}
-<div class="row">
-  <div class="col-md-8 mx-auto">
-    <h2>Projects</h2>
-    <form method="POST" action="{{ url_for('main.create_project') }}" class="d-flex gap-2 mb-4">
-      <input type="text" class="form-control" name="name" placeholder="New project name" required>
-      <button class="btn btn-primary" type="submit">Create</button>
-    </form>
-    <table class="table table-hover bg-white shadow-sm">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Updated</th>
-          <th>Tasks</th>
-          <th class="text-end">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in projects %}
-        <tr>
-          <td>
-            <a href="{{ url_for('main.project', id=p.id) }}" class="fw-semibold">{{ p.name }}</a>
-          </td>
-          <td>{{ p.updated_at.strftime("%Y-%m-%d %H:%M") if p.updated_at else "" }}</td>
-          <td>{{ p.task_count }}</td>
-          <td class="text-end">
-            <form method="POST" action="{{ url_for('main.rename_project', id=p.id) }}" class="d-inline-flex gap-1">
-              <input type="text" name="name" class="form-control form-control-sm" value="{{ p.name }}" required style="width:160px">
-              <button class="btn btn-sm btn-outline-secondary" type="submit">Rename</button>
-            </form>
-            <form method="POST" action="{{ url_for('main.delete_project', id=p.id) }}" class="d-inline"
-                  onsubmit="return confirm('Delete this project and all its data?')">
-              <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="text-muted">No projects yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+<div class="container-fluid px-3 px-lg-4 py-2">
+
+  <!-- 1. Header & Actions -->
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 portfolio-header mb-4">
+    <div>
+      <h2 class="mb-1 fw-bold text-dark d-flex align-items-center gap-2">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="text-primary">
+          <rect x="3" y="3" width="7" height="9" rx="1"></rect>
+          <rect x="14" y="3" width="7" height="5" rx="1"></rect>
+          <rect x="14" y="12" width="7" height="9" rx="1"></rect>
+          <rect x="3" y="16" width="7" height="5" rx="1"></rect>
+        </svg>
+        Projects Dashboard
+      </h2>
+      <p class="text-muted mb-0 small">Portfolio overview of delivery schedules, progress, and key milestones at a glance.</p>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <button type="button" class="btn btn-primary d-inline-flex align-items-center gap-2 shadow-sm"
+              data-bs-toggle="modal" data-bs-target="#newProjectModal">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        New Project
+      </button>
+    </div>
+  </div>
+
+  {% if projects %}
+  <!-- 2. Portfolio Summary KPI Strip -->
+  <div class="row g-3 mb-4">
+    <!-- Metric 1: Total Projects & Health Breakdown -->
+    <div class="col-12 col-sm-6 col-xl-3">
+      <div class="card h-100 portfolio-kpi-card p-3">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="text-uppercase fw-bold text-secondary small" style="font-size: 0.72rem; letter-spacing: 0.08em;">Portfolio</span>
+          <span class="badge bg-primary-subtle text-primary rounded-pill px-2 py-1 small">{{ portfolio.total_projects }} Active</span>
+        </div>
+        <div class="portfolio-kpi-num mb-2">{{ portfolio.total_projects }} <span class="fs-6 text-muted fw-normal">Project{% if portfolio.total_projects != 1 %}s{% endif %}</span></div>
+        <div class="d-flex flex-wrap gap-1 mt-auto pt-2 border-top">
+          <span class="badge bg-success-subtle text-success rounded-pill" title="Projects On Track or Complete">
+            {{ portfolio.on_track_count }} On Track
+          </span>
+          {% if portfolio.at_risk_count %}
+          <span class="badge bg-warning-subtle text-warning-emphasis rounded-pill" title="Projects with warnings or schedule variance">
+            {{ portfolio.at_risk_count }} At Risk
+          </span>
+          {% endif %}
+          {% if portfolio.critical_count %}
+          <span class="badge bg-danger-subtle text-danger rounded-pill" title="Projects with critical risks or severe slip">
+            {{ portfolio.critical_count }} Attention
+          </span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Metric 2: Overall Progress -->
+    <div class="col-12 col-sm-6 col-xl-3">
+      <div class="card h-100 portfolio-kpi-card p-3">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="text-uppercase fw-bold text-secondary small" style="font-size: 0.72rem; letter-spacing: 0.08em;">Portfolio Progress</span>
+          <span class="overview-card-icon-pill bg-success-subtle text-success" style="width: 28px; height: 28px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </span>
+        </div>
+        <div class="portfolio-kpi-num text-success mb-2">{{ portfolio.portfolio_progress }}%</div>
+        <div class="mt-auto pt-2 border-top">
+          <div class="progress mb-1" style="height: 6px;">
+            <div class="progress-bar bg-success" style="width: {{ portfolio.portfolio_progress }}%;"></div>
+          </div>
+          <div class="text-muted small d-flex justify-content-between">
+            <span>{{ portfolio.total_completed }} delivered</span>
+            <span>{{ portfolio.total_tasks }} total tasks</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metric 3: Milestones & Key Gates -->
+    <div class="col-12 col-sm-6 col-xl-3">
+      <div class="card h-100 portfolio-kpi-card p-3">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="text-uppercase fw-bold text-secondary small" style="font-size: 0.72rem; letter-spacing: 0.08em;">Milestone Gates</span>
+          <span class="overview-card-icon-pill bg-primary-subtle text-primary" style="width: 28px; height: 28px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+          </span>
+        </div>
+        <div class="portfolio-kpi-num text-primary mb-2">{{ portfolio.milestones_reached }} <span class="fs-6 text-muted fw-normal">/ {{ portfolio.total_milestones }}</span></div>
+        <div class="mt-auto pt-2 border-top text-muted small d-flex justify-content-between align-items-center">
+          <span>Gates completed</span>
+          <span class="fw-semibold text-dark">{{ portfolio.total_milestones - portfolio.milestones_reached }} upcoming</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metric 4: Governance & Quick Health -->
+    <div class="col-12 col-sm-6 col-xl-3">
+      <div class="card h-100 portfolio-kpi-card p-3">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="text-uppercase fw-bold text-secondary small" style="font-size: 0.72rem; letter-spacing: 0.08em;">Portfolio Health</span>
+          <span class="overview-card-icon-pill {% if portfolio.critical_count %}bg-danger-subtle text-danger{% elif portfolio.at_risk_count %}bg-warning-subtle text-warning-emphasis{% else %}bg-success-subtle text-success{% endif %}" style="width: 28px; height: 28px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          </span>
+        </div>
+        <div class="portfolio-kpi-num mb-2 {% if portfolio.critical_count %}text-danger{% elif portfolio.at_risk_count %}text-warning-emphasis{% else %}text-success{% endif %}">
+          {% if portfolio.critical_count %}
+          Action Needed
+          {% elif portfolio.at_risk_count %}
+          Monitor Risks
+          {% else %}
+          On Schedule
+          {% endif %}
+        </div>
+        <div class="mt-auto pt-2 border-top text-muted small">
+          {% if portfolio.critical_count %}
+          <span class="text-danger fw-semibold">{{ portfolio.critical_count }} project{% if portfolio.critical_count != 1 %}s{% endif %} with critical alerts</span>
+          {% elif portfolio.at_risk_count %}
+          <span class="text-warning-emphasis fw-semibold">{{ portfolio.at_risk_count }} project{% if portfolio.at_risk_count != 1 %}s{% endif %} with active schedule variance</span>
+          {% else %}
+          <span class="text-success fw-semibold">All projects tracking within target gates</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Projects Grid -->
+  <div class="row g-4 row-cols-1 row-cols-md-2 row-cols-xl-3 mb-5">
+    {% for p in projects %}
+    <div class="col">
+      <div class="card h-100 portfolio-card status-{{ p.overview.health_status }}">
+        <div class="card-body p-4 d-flex flex-column justify-content-between">
+
+          <!-- Card Header: Title, Health, Actions Menu -->
+          <div>
+            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+              <span class="overview-health-pill overview-health-{{ p.overview.health_status }} py-1 px-2" style="font-size: 0.74rem;">
+                <span class="overview-health-dot" style="width: 7px; height: 7px;"></span>
+                <span>{{ p.overview.health_label }}</span>
+              </span>
+              <!-- Actions Dropdown -->
+              <div class="dropdown">
+                <button class="btn btn-sm btn-link text-muted p-0 text-decoration-none" type="button"
+                        id="projActions-{{ p.id }}" data-bs-toggle="dropdown" aria-expanded="false" title="Project actions">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow-sm" aria-labelledby="projActions-{{ p.id }}">
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}">Open project</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#plan">Tasks &amp; PERT diagram</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#overview">Overview dashboard</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#raid">RAID log</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.export_jira_csv', id=p.id) }}">Export to Jira (CSV)</a></li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#renameModal-{{ p.id }}">
+                      Rename project
+                    </button>
+                  </li>
+                  <li>
+                    <form method="POST" action="{{ url_for('main.delete_project', id=p.id) }}"
+                          onsubmit="return confirm('Are you sure you want to delete project \'{{ p.name }}\' and all its data?');">
+                      <button class="dropdown-item text-danger" type="submit">Delete project</button>
+                    </form>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Project Title & Description -->
+            <h5 class="mb-1">
+              <a href="{{ url_for('main.project', id=p.id) }}" class="project-card-title text-decoration-none">
+                {{ p.name }}
+              </a>
+            </h5>
+            {% if p.description %}
+            <p class="text-muted small mb-3 text-truncate-2" style="font-size: 0.85rem; line-height: 1.4;">
+              {{ p.description | striptags | truncate(110) }}
+            </p>
+            {% else %}
+            <div class="mb-3"></div>
+            {% endif %}
+
+            <!-- Progress Meter -->
+            <div class="mb-3">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="small fw-semibold text-secondary">Progress</span>
+                <span class="small fw-bold text-dark">{{ p.overview.progress_percent }}%</span>
+              </div>
+              <div class="overview-stacked-bar" style="height: 7px;" role="progressbar">
+                {% if p.overview.tasks_total > 0 %}
+                <div class="bar-done" style="width: {{ (p.overview.tasks_completed / p.overview.tasks_total * 100)|round }}%;"></div>
+                <div class="bar-started" style="width: {{ (p.overview.tasks_in_progress / p.overview.tasks_total * 100)|round }}%;"></div>
+                <div class="bar-not-started" style="width: {{ (p.overview.tasks_not_started / p.overview.tasks_total * 100)|round }}%;"></div>
+                {% else %}
+                <div class="bar-empty" style="width: 100%;"></div>
+                {% endif %}
+              </div>
+              <div class="d-flex justify-content-between text-muted mt-1" style="font-size: 0.78rem;">
+                <span><span class="status-dot dot-done"></span> {{ p.overview.tasks_completed }} Done</span>
+                <span><span class="status-dot dot-started"></span> {{ p.overview.tasks_in_progress }} Active</span>
+                <span><span class="status-dot dot-not-started"></span> {{ p.overview.tasks_not_started }} To do</span>
+              </div>
+            </div>
+
+            <!-- Schedule & Variance Strip -->
+            <div class="project-card-schedule-strip mb-3">
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">
+                <span class="fw-semibold text-secondary small" style="font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;">Schedule</span>
+                {% if p.overview.has_baseline and p.overview.schedule_variance_days is not none %}
+                  {% if p.overview.schedule_variance_days > 0 %}
+                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill" style="font-size: 0.72rem;">+{{ p.overview.schedule_variance_days }}d delay vs baseline</span>
+                  {% elif p.overview.schedule_variance_days < 0 %}
+                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill" style="font-size: 0.72rem;">{{ p.overview.schedule_variance_days }}d ahead</span>
+                  {% else %}
+                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill" style="font-size: 0.72rem;">On baseline</span>
+                  {% endif %}
+                {% elif p.overview.has_schedule %}
+                  {% if p.overview.schedule_slip_days > 0 %}
+                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill" style="font-size: 0.72rem;">+{{ p.overview.schedule_slip_days }}d slip</span>
+                  {% else %}
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill" style="font-size: 0.72rem;">On schedule</span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge bg-light text-muted border rounded-pill" style="font-size: 0.72rem;">No timeline</span>
+                {% endif %}
+              </div>
+              <div class="d-flex justify-content-between small text-dark" style="font-size: 0.83rem;">
+                {% if p.overview.has_schedule %}
+                <span>Start: <strong>{{ fmt_overview_day(p.overview.schedule_start) }}</strong></span>
+                <span>Finish: <strong>{{ fmt_overview_day(p.overview.schedule_target, true) }}</strong></span>
+                {% else %}
+                <span class="text-muted">Add tasks to schedule dates</span>
+                {% endif %}
+              </div>
+            </div>
+
+            <!-- Next Milestone Gate -->
+            <div class="mb-3">
+              {% if p.overview.next_milestone %}
+              <div class="project-card-gate d-flex align-items-center justify-content-between">
+                <span class="text-truncate me-2" title="{{ p.overview.next_milestone.name }}">
+                  <span class="text-primary fw-bold me-1">◆</span>
+                  <strong>Next Gate:</strong> {{ p.overview.next_milestone.name }}
+                </span>
+                <span class="text-secondary small fw-semibold text-nowrap">{{ fmt_overview_day(p.overview.next_milestone.start_date, true) }}</span>
+              </div>
+              {% elif p.overview.milestones_total > 0 and p.overview.milestones_completed == p.overview.milestones_total %}
+              <div class="project-card-gate text-success small d-flex align-items-center">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="me-1"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>All {{ p.overview.milestones_total }} milestone gates reached</span>
+              </div>
+              {% else %}
+              <div class="project-card-gate text-muted small">
+                <span>No upcoming milestones</span>
+              </div>
+              {% endif %}
+            </div>
+
+            <!-- Chips: Governance, Risks, Requirements -->
+            <div class="project-card-chips mb-2">
+              {% if p.overview.risk_critical > 0 %}
+              <span class="badge bg-danger text-white rounded-pill">{{ p.overview.risk_critical }} Critical Risk{% if p.overview.risk_critical != 1 %}s{% endif %}</span>
+              {% elif p.overview.risk_high > 0 %}
+              <span class="badge bg-warning text-dark rounded-pill">{{ p.overview.risk_high }} High Risk{% if p.overview.risk_high != 1 %}s{% endif %}</span>
+              {% else %}
+              <span class="badge bg-light text-secondary border rounded-pill">0 High Risks</span>
+              {% endif %}
+
+              <span class="badge bg-light text-secondary border rounded-pill">
+                {{ p.overview.requirements_covered }}/{{ p.overview.requirements_total }} Reqs ({{ p.overview.requirements_percent }}%)
+              </span>
+
+              <span class="badge bg-light text-secondary border rounded-pill">
+                {{ p.lanes_count }} lanes &middot; {{ p.members_count }} members
+              </span>
+            </div>
+          </div>
+
+          <!-- Card Footer: Last Updated & Open Button -->
+          <div class="project-card-footer d-flex justify-content-between align-items-center">
+            <span class="text-muted" style="font-size: 0.78rem;">
+              Updated {{ p.updated_at.strftime("%d %b %Y") if p.updated_at else "Recently" }}
+            </span>
+            <div class="d-flex align-items-center gap-1">
+              <a href="{{ url_for('main.project', id=p.id) }}#plan" class="btn btn-sm btn-outline-secondary" title="Tasks &amp; PERT diagram">
+                Plan
+              </a>
+              <a href="{{ url_for('main.project', id=p.id) }}" class="btn btn-sm btn-primary fw-semibold px-3">
+                Open &rarr;
+              </a>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Rename Project Modal for this project -->
+    <div class="modal fade" id="renameModal-{{ p.id }}" tabindex="-1" aria-labelledby="renameModalLabel-{{ p.id }}" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <form method="POST" action="{{ url_for('main.rename_project', id=p.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title" id="renameModalLabel-{{ p.id }}">Rename Project</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label for="rename-input-{{ p.id }}" class="form-label fw-semibold">Project Name</label>
+                <input type="text" class="form-control" id="rename-input-{{ p.id }}" name="name" value="{{ p.name }}" required maxlength="200">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <!-- Empty State -->
+  <div class="text-center py-5 my-5 bg-white rounded-3 shadow-sm border p-5">
+    <div class="mb-3">
+      <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="text-secondary opacity-50">
+        <rect x="3" y="3" width="7" height="9" rx="1"></rect>
+        <rect x="14" y="3" width="7" height="5" rx="1"></rect>
+        <rect x="14" y="12" width="7" height="9" rx="1"></rect>
+        <rect x="3" y="16" width="7" height="5" rx="1"></rect>
+      </svg>
+    </div>
+    <h3 class="fw-bold text-dark mb-2">Welcome to Projects Dashboard</h3>
+    <p class="text-muted mb-4 mx-auto" style="max-width: 500px;">
+      Create your first project to start mapping PERT dependencies, scheduling working-day timelines, and tracking delivery gates.
+    </p>
+    <button type="button" class="btn btn-primary btn-lg px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#newProjectModal">
+      + Create your first project
+    </button>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- New Project Modal -->
+<div class="modal fade" id="newProjectModal" tabindex="-1" aria-labelledby="newProjectModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('main.create_project') }}">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold text-dark" id="newProjectModalLabel">Create New Project</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="new-project-name" class="form-label fw-semibold">Project Name</label>
+            <input type="text" class="form-control" id="new-project-name" name="name"
+                   placeholder="e.g. Shopping Cart Modernization" required maxlength="200" autofocus>
+          </div>
+          <div class="mb-3">
+            <label for="new-project-desc" class="form-label fw-semibold">Description <span class="text-muted fw-normal">(optional)</span></label>
+            <textarea class="form-control" id="new-project-desc" name="description" rows="3"
+                      placeholder="Brief summary of goals, scope, and target outcomes"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Project</button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 {% endblock %}

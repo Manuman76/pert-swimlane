@@ -4,7 +4,7 @@
 <link href="{{ url_for('static', filename='vendor/quill.snow.css') }}" rel="stylesheet">
 {% endblock %}
 {% block navbar_right %}
-<a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-light">&larr; Back to projects</a>
+<a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-light">&larr; Projects Dashboard</a>
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -201,6 +201,62 @@
             </div>
             <button class="btn btn-primary" type="submit">Save details</button>
           </form>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-4">
+        <div class="card-header panel-header d-flex justify-content-between align-items-center">
+          <strong>Schedule baseline</strong>
+          {% if project.baseline_set_at %}
+          <span class="badge bg-success-subtle text-success">Active</span>
+          {% else %}
+          <span class="badge bg-secondary-subtle text-secondary">None</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            Capture a schedule snapshot to establish planned milestone targets and measure working-day schedule variance.
+          </p>
+          {% if project.baseline_set_at %}
+          <div class="mb-3 small">
+            Baseline captured: <strong>{{ project.baseline_set_at.strftime("%d %b %Y, %H:%M UTC") }}</strong>
+          </div>
+          {% endif %}
+          <div class="d-flex gap-2">
+            <form method="POST" action="{{ url_for('main.manage_baseline', id=project.id) }}">
+              <input type="hidden" name="action" value="set">
+              <input type="hidden" name="tab" value="settings">
+              <button class="btn btn-outline-primary btn-sm" type="submit">
+                {% if project.baseline_set_at %}Update baseline (Re-baseline){% else %}Set baseline{% endif %}
+              </button>
+            </form>
+            {% if project.baseline_set_at %}
+            <form method="POST" action="{{ url_for('main.manage_baseline', id=project.id) }}"
+                  onsubmit="return confirm('Clear baseline dates?');">
+              <input type="hidden" name="action" value="clear">
+              <input type="hidden" name="tab" value="settings">
+              <button class="btn btn-outline-danger btn-sm" type="submit">Clear baseline</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-4">
+        <div class="card-header panel-header d-flex justify-content-between align-items-center">
+          <strong>Calendar &amp; Working days</strong>
+          <span class="text-muted small">PERT schedule calendar</span>
+        </div>
+        <div class="card-body">
+          <h6 class="fw-bold small text-uppercase text-secondary mb-2">Working days</h6>
+          <p class="text-muted small mb-3">Tasks and durations only count on selected working days.</p>
+          {% include "partials/settings_workdays.html" %}
+
+          <hr class="my-4">
+
+          <h6 class="fw-bold small text-uppercase text-secondary mb-2">Holidays</h6>
+          <p class="text-muted small mb-3">Non-working days skipped by the scheduling engine.</p>
+          {% include "partials/settings_holidays.html" %}
         </div>
       </div>
     </div>

@@ -10,7 +10,7 @@ from ..services.common import (
     requirements_in_order,
 )
 from ..task_tree import build_task_tree_rows
-from ..project_overview import build_project_overview, fmt_overview_day
+from ..project_overview import build_project_overview, fmt_overview_day, fmt_variance
 
 bp = Blueprint("main", __name__)
 
@@ -44,6 +44,7 @@ def overview_context(project, tasks=None):
     requirements = requirements_in_order(project.id)
     raid_items = RaidItem.query.filter_by(project_id=project.id).all()
     return {
-        "overview": build_project_overview(tasks, requirements, raid_items),
+        "overview": build_project_overview(tasks, requirements, raid_items, project=project),
         "fmt_overview_day": fmt_overview_day,
+        "fmt_variance": fmt_variance,
     }

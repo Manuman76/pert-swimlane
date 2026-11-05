@@ -15,6 +15,8 @@ class Project(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.Text, nullable=False, unique=True)
     description = db.Column(db.Text, nullable=True)
+    baseline_set_at = db.Column(db.DateTime, nullable=True)
+    workdays = db.Column(db.Text, nullable=False, default="0,1,2,3,4")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -23,6 +25,38 @@ class Project(db.Model):
     members = db.relationship("TeamMember", backref="project", lazy=True, cascade="all, delete-orphan")
     requirements = db.relationship("Requirement", backref="project", lazy=True, cascade="all, delete-orphan")
     raid_items = db.relationship("RaidItem", backref="project", lazy=True, cascade="all, delete-orphan")
+    holidays = db.relationship("Holiday", backref="project", lazy=True, cascade="all, delete-orphan", order_by="Holiday.date")
+
+    @property
+    def workdays_list(self):
+        if not self.workdays:
+            return [0, 1, 2, 3, 4]
+        try:
+            nums = [int(x.strip()) for x in self.workdays.split(",") if x.strip() and x.strip().isdigit()]
+            return nums if nums else [0, 1, 2, 3, 4]
+        except Exception:
+            return [0, 1, 2, 3, 4]
+
+    @property
+    def workdays_set(self):
+        return set(self.workdays_list)
+
+    @property
+    def calendar(self):
+        from .workdays import WorkdayCalendar
+        holiday_dates = {h.date for h in self.holidays} if self.holidays else set()
+        return WorkdayCalendar(workdays=self.workdays_set, holidays=holiday_dates)
+
+
+class Holiday(db.Model):
+    __tablename__ = "holidays"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    name = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint("project_id", "date", name="uq_project_holiday_date"),)
 
 
 class TeamMember(db.Model):
@@ -171,6 +205,9 @@ class Task(db.Model):
     progress_percent = db.Column(db.Integer, nullable=True)
     started = db.Column(db.Boolean, nullable=False, default=False)
     done = db.Column(db.Boolean, nullable=False, default=False)
+    baseline_start_date = db.Column(db.Date, nullable=True)
+    baseline_end_date = db.Column(db.Date, nullable=True)
+    baseline_duration_days = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -183,13 +220,37 @@ class Task(db.Model):
         return self.kind == TASK_KIND_MILESTONE
 
     @property
+    def has_baseline(self):
+        return self.baseline_start_date is not None or self.baseline_end_date is not None
+
+    @property
+    def calendar(self):
+        return getattr(self.project, "calendar", None) if getattr(self, "project", None) else None
+
+    @property
+    def variance_days(self):
+        """Signed working-day difference between current date and baseline date.
+        Positive: delayed (e.g. +2d). Negative: ahead (e.g. -2d). Zero: on track.
+        """
+        from .workdays import diff_workdays
+        cal = self.calendar
+        if self.is_milestone:
+            if not self.baseline_start_date or not self.start_date:
+                return 0
+            return diff_workdays(self.baseline_start_date, self.start_date, calendar=cal)
+        else:
+            if not self.baseline_end_date or not self.end_date:
+                return 0
+            return diff_workdays(self.baseline_end_date, self.end_date, calendar=cal)
+
+    @property
     def end_date(self):
         """Exclusive finish for tasks; for milestones, the target date itself."""
         if not self.start_date:
             return None
         if self.is_milestone:
             return self.start_date
-        return add_workdays(self.start_date, self.duration_days or 0)
+        return add_workdays(self.start_date, self.duration_days or 0, calendar=self.calendar)
 
     @property
     def status(self):

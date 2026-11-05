@@ -20,6 +20,12 @@
       <span class="legend-swatch legend-swatch-diamond">◆</span>
       Milestone
     </span>
+    {% if tasks | selectattr("baseline_start_date") | list %}
+    <span class="legend-item" title="Schedule variance vs baseline">
+      <span class="legend-swatch legend-swatch-variance">+Xd</span>
+      Variance vs baseline
+    </span>
+    {% endif %}
   </div>
   <div class="diagram-canvas" style="width:{{ canvas_w }}px; height:{{ canvas_h }}px;">
     <!-- Lane bands -->
@@ -49,7 +55,13 @@
           <div class="milestone-caption">
             <div class="milestone-name" title="{{ task.name }}">{{ task.name }}</div>
             <div class="milestone-meta">
-              <span class="milestone-date" title="Target date">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</span>
+              <span class="milestone-date" title="{% if task.baseline_start_date %}Current: {{ task.start_date.strftime('%d %b %Y').lstrip('0') }} | Baseline: {{ task.baseline_start_date.strftime('%d %b %Y').lstrip('0') }}{% else %}Target date{% endif %}">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</span>
+              {% if task.baseline_start_date and task.variance_days != 0 %}
+              <span class="milestone-variance-tag {% if task.variance_days > 0 %}tag-delay{% else %}tag-ahead{% endif %}"
+                    title="Baseline: {{ task.baseline_start_date.strftime('%d %b %Y').lstrip('0') }} ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d variance)">
+                {% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d
+              </span>
+              {% endif %}
               <span class="milestone-status" style="color:{{ st.bar }}">{{ st.icon }}</span>
             </div>
             {% if task.responsible %}<div class="milestone-owner">{{ task.responsible }}</div>{% endif %}
@@ -65,7 +77,15 @@
             </div>
             <div class="card-row">
               <div class="card-cell">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</div>
-              <div class="card-cell">{{ task.end_date.strftime("%d %b %Y").lstrip("0") }}</div>
+              <div class="card-cell">
+                {{ task.end_date.strftime("%d %b %Y").lstrip("0") }}
+                {% if task.baseline_end_date and task.variance_days != 0 %}
+                <span class="card-variance-tag {% if task.variance_days > 0 %}tag-delay{% else %}tag-ahead{% endif %}"
+                      title="Baseline end: {{ task.baseline_end_date.strftime('%d %b %Y').lstrip('0') }} ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d variance)">
+                  ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d)
+                </span>
+                {% endif %}
+              </div>
             </div>
             <div class="card-footer">
               <span class="card-status" style="color:{{ st.bar }}">{{ st.icon }} {{ st.label }}</span>

@@ -1,8 +1,10 @@
 """PERT schedule calculation, forward-pass DAG scheduling, and dependency validation."""
 
+from datetime import datetime
 from collections import deque
-from ..models import Task, TASK_KIND_TASK, TASK_KIND_MILESTONE
-from ..workdays import count_workdays, next_workday
+from ..db import db
+from ..models import Project, Task, TASK_KIND_TASK, TASK_KIND_MILESTONE
+from ..workdays import count_workdays, next_workday, diff_workdays
 
 
 def fmt_date(d):
@@ -39,11 +41,14 @@ def recalculate_project(project_id):
     if not by_code:
         return []
 
+    project = Project.query.get(project_id)
+    cal = project.calendar if project else None
+
     moved = set()
 
-    # Pass 1 - nobody works weekends: roll any Sat/Sun start onto the Monday.
+    # Pass 1 - roll non-working days and holidays onto the next working day.
     for code, task in by_code.items():
-        workday = next_workday(task.start_date)
+        workday = next_workday(task.start_date, calendar=cal)
         if workday != task.start_date:
             task.start_date = workday
             moved.add(code)
@@ -63,9 +68,9 @@ def recalculate_project(project_id):
         preds = [by_code[p] for p in task.predecessor_codes()
                  if p in by_code and p != code]
         if preds:
-            # Every predecessor's end date is already a working day, so the
-            # earliest legal start is too.
-            earliest = max(p.end_date for p in preds)
+            # Every predecessor's end date respects the calendar.
+            # Earliest successor start is a working day on or after max(p.end_date).
+            earliest = next_workday(max(p.end_date for p in preds), calendar=cal)
             if task.start_date < earliest:
                 task.start_date = earliest
                 moved.add(code)
@@ -164,13 +169,12 @@ def validate_predecessors_change(task, project_id, new_preds):
     return normalized, errors
 
 
-def project_date_stats(tasks):
+def project_date_stats(tasks, calendar=None):
     """Project-level totals shown above the Lanes panel.
 
     `total_effort` is the sum of all task durations, and `total_duration` the
     span from the earliest start date to the latest end date - both counted in
-    **working days** (Saturday and Sunday excluded), so the numbers match the
-    dates on the grid rather than the wall calendar.
+    **working days** (excluding non-working days and holidays according to the calendar).
     """
     if not tasks:
         return 0, 0, None, None
@@ -179,7 +183,10 @@ def project_date_stats(tasks):
     )
     project_start = min(t.start_date for t in tasks)
     project_end = max(t.end_date for t in tasks if t.end_date)
-    total_duration = count_workdays(project_start, project_end)
+    cal = calendar
+    if cal is None and tasks and hasattr(tasks[0], "project") and getattr(tasks[0], "project", None):
+        cal = tasks[0].project.calendar
+    total_duration = count_workdays(project_start, project_end, calendar=cal)
     return total_effort, total_duration, project_start, project_end
 
 
@@ -190,3 +197,35 @@ def task_successors(task, all_tasks):
         [t for t in all_tasks if code in t.predecessor_codes()],
         key=lambda t: (t.start_date, t.code),
     )
+
+
+def set_project_baseline(project_id):
+    """Snapshot the current schedule as the project's baseline."""
+    project = Project.query.get(project_id)
+    if not project:
+        return 0
+    project.baseline_set_at = datetime.utcnow()
+    tasks = Task.query.filter_by(project_id=project.id).all()
+    count = 0
+    for t in tasks:
+        t.baseline_start_date = t.start_date
+        t.baseline_end_date = t.end_date
+        t.baseline_duration_days = t.duration_days
+        count += 1
+    db.session.commit()
+    return count
+
+
+def clear_project_baseline(project_id):
+    """Clear stored baseline dates for the project and its tasks."""
+    project = Project.query.get(project_id)
+    if not project:
+        return
+    project.baseline_set_at = None
+    tasks = Task.query.filter_by(project_id=project.id).all()
+    for t in tasks:
+        t.baseline_start_date = None
+        t.baseline_end_date = None
+        t.baseline_duration_days = None
+    db.session.commit()
+

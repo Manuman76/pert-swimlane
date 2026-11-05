@@ -132,7 +132,7 @@ def create_task(id):
         kind=kind,
         lane_id=lane.id,
         name="New Milestone" if is_milestone else "New Task",
-        start_date=next_workday(_today_fn()),
+        start_date=next_workday(_today_fn(), calendar=proj.calendar),
         duration_days=0 if is_milestone else 1,
         responsible=None,
         predecessors=None,
@@ -176,7 +176,7 @@ def update_task(task_id):
             lane_error = "Lane must be selected from the project's swimlanes."
 
     start_raw = request.form.get("start_date", "").strip()
-    new_start = parse_date(start_raw) if start_raw else task.start_date
+    new_start = parse_date(start_raw, calendar=proj.calendar) if start_raw else task.start_date
 
     dur_raw = request.form.get("duration_days", "").strip()
     if task.kind == TASK_KIND_MILESTONE:
@@ -415,7 +415,7 @@ def update_task_detail(task_id):
         new_lane_id = selected_lane.id
 
     start_raw = request.form.get("start_date", "").strip()
-    new_start = parse_date(start_raw) if start_raw else task.start_date
+    new_start = parse_date(start_raw, calendar=proj.calendar) if start_raw else task.start_date
 
     dur_raw = request.form.get("duration_days", "").strip()
     if task.kind == TASK_KIND_MILESTONE:

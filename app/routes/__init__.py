@@ -17,6 +17,9 @@ from .settings import (
     swap_lane_orders,
     manage_lanes,
     manage_members,
+    update_project_workdays,
+    manage_holidays,
+    WEEKDAY_CHOICES,
 )
 from .requirements import (
     requirements_partial_context,
@@ -64,6 +67,8 @@ from ..services.scheduler import (
     validate_predecessors_change as _validate_predecessors_change,
     project_date_stats,
     task_successors,
+    set_project_baseline,
+    clear_project_baseline,
 )
 
 # Internal helper aliases for test compatibility

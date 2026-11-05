@@ -9,33 +9,81 @@ from ..services.common import (
     lanes_in_order,
     normalize_rich_text,
 )
-from ..services.scheduler import project_date_stats
+from ..services.scheduler import (
+    project_date_stats,
+    set_project_baseline,
+    clear_project_baseline,
+)
 from ..jira_export import export_project_csv, export_filename
+from ..project_overview import build_project_overview, fmt_overview_day
 from .context import bp, task_table_render_kwargs, overview_context
 from .raid import raid_context
+from .settings import WEEKDAY_CHOICES
 
 
 def get_project_stats(project):
+    tasks = project.tasks
+    requirements = project.requirements
+    raid_items = project.raid_items
+    overview = build_project_overview(tasks, requirements, raid_items, project=project)
     return {
         "id": project.id,
         "name": project.name,
+        "description": project.description,
         "updated_at": project.updated_at,
-        "task_count": len(project.tasks),
+        "task_count": len(tasks),
+        "lanes_count": len(project.lanes),
+        "members_count": len(project.members),
+        "overview": overview,
     }
 
 
 @bp.route("/")
 def index():
     projects = Project.query.order_by(Project.updated_at.desc()).all()
-    return render_template("index.html", projects=[get_project_stats(p) for p in projects])
+    project_stats = [get_project_stats(p) for p in projects]
+
+    total_projects = len(project_stats)
+    on_track_count = sum(1 for p in project_stats if p["overview"].health_status in ("on_track", "completed"))
+    at_risk_count = sum(1 for p in project_stats if p["overview"].health_status == "at_risk")
+    critical_count = sum(1 for p in project_stats if p["overview"].health_status == "critical")
+
+    total_tasks = sum(p["overview"].tasks_total for p in project_stats)
+    total_completed = sum(p["overview"].tasks_completed for p in project_stats)
+    portfolio_progress = round(100 * total_completed / total_tasks) if total_tasks else 0
+
+    total_milestones = sum(p["overview"].milestones_total for p in project_stats)
+    milestones_reached = sum(p["overview"].milestones_completed for p in project_stats)
+
+    portfolio_metrics = {
+        "total_projects": total_projects,
+        "on_track_count": on_track_count,
+        "at_risk_count": at_risk_count,
+        "critical_count": critical_count,
+        "total_tasks": total_tasks,
+        "total_completed": total_completed,
+        "portfolio_progress": portfolio_progress,
+        "total_milestones": total_milestones,
+        "milestones_reached": milestones_reached,
+    }
+
+    return render_template(
+        "index.html",
+        projects=project_stats,
+        portfolio=portfolio_metrics,
+        fmt_overview_day=fmt_overview_day,
+    )
 
 
 @bp.route("/projects", methods=["POST"])
 def create_project():
     name = request.form.get("name", "").strip()
+    description = normalize_rich_text(request.form.get("description", ""))
     if not name:
         return "Project name is required", 400
-    proj = Project(name=name)
+    if Project.query.filter(Project.name == name).first():
+        return "A project with that name already exists", 400
+    proj = Project(name=name, description=description)
     db.session.add(proj)
     db.session.commit()
     return redirect(url_for("main.index"))
@@ -81,6 +129,7 @@ def project(id):
         total_duration=total_duration,
         project_start=project_start,
         project_end=project_end,
+        weekday_choices=WEEKDAY_CHOICES,
         **raid_context(proj),
         **overview_context(proj, tasks),
     )
@@ -110,6 +159,29 @@ def update_project_settings(id):
     proj.description = normalize_rich_text(request.form.get("description", ""))
     db.session.commit()
     return redirect(url_for("main.project", id=proj.id) + "#settings")
+
+
+@bp.route("/projects/<int:id>/baseline", methods=["POST"])
+def manage_baseline(id):
+    proj = Project.query.get_or_404(id)
+    action = request.form.get("action", "set")
+    if action == "clear":
+        clear_project_baseline(proj.id)
+    else:
+        set_project_baseline(proj.id)
+
+    tasks = Task.query.filter_by(project_id=proj.id).all()
+    if request.headers.get("HX-Request") or request.form.get("partial") == "overview":
+        response = make_response(render_template(
+            "partials/project_overview.html",
+            project=proj,
+            **overview_context(proj, tasks),
+        ))
+        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid"
+        return response
+
+    tab_fragment = "#settings" if request.form.get("tab") == "settings" else "#overview"
+    return redirect(url_for("main.project", id=proj.id) + tab_fragment)
 
 
 @bp.route("/projects/<int:id>/export/jira.csv")

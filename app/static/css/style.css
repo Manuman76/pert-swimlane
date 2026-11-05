@@ -1348,6 +1348,129 @@ body.task-dragging #task-table .task-grid-row { cursor: default; }
   white-space: nowrap;
 }
 
+/* Schedule Baseline & Variance styles */
+.milestone-variance-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 1.1;
+  margin-left: 2px;
+}
+
+.milestone-variance-tag.tag-delay,
+.card-variance-tag.tag-delay {
+  background: #fee2e2;
+  color: #dc3545;
+  border: 1px solid #fca5a5;
+}
+
+.milestone-variance-tag.tag-ahead,
+.card-variance-tag.tag-ahead {
+  background: #d1e7dd;
+  color: #0f5132;
+  border: 1px solid #a3cfbb;
+}
+
+.card-variance-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 3px;
+}
+
+.legend-swatch-variance {
+  background: #fee2e2;
+  border-color: #dc3545;
+  color: #dc3545;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Projects Dashboard (Portfolio View)
+   ========================================================================== */
+
+.portfolio-kpi-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.portfolio-kpi-num {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #1e293b;
+}
+
+.portfolio-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  position: relative;
+}
+
+.portfolio-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  border-color: #cbd5e1;
+}
+
+.portfolio-card.status-on_track,
+.portfolio-card.status-completed {
+  border-left: 5px solid #198754;
+}
+
+.portfolio-card.status-at_risk {
+  border-left: 5px solid #f59e0b;
+}
+
+.portfolio-card.status-critical {
+  border-left: 5px solid #dc3545;
+}
+
+.project-card-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+  transition: color 0.15s ease;
+}
+
+.project-card-title:hover {
+  color: #0d6efd;
+}
+
+.project-card-schedule-strip {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+}
+
+.project-card-gate {
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
+}
+
+.project-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.project-card-footer {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 0.85rem;
+  margin-top: 0.85rem;
+}
+
 @media (max-width: 991.98px) {
   .plan-workspace {
     flex-direction: column;

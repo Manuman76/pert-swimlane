@@ -24,18 +24,17 @@ def fmt_date(d):
     return d.strftime("%d %b %Y") if d else ""
 
 
-def parse_date(s):
+def parse_date(s, calendar=None):
     """Parse an entered date, rolled forward onto a working day.
 
-    The calendar is a 5-day week: a start date typed on a Saturday or Sunday
-    means 'when the work actually starts', i.e. the following Monday, so the
-    grid never stores a weekend date.
+    A start date typed on a non-working day or holiday rolls forward to the
+    next working day according to the project calendar.
     """
     if not s:
         return None
     for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
         try:
-            return next_workday(datetime.strptime(s.strip(), fmt).date())
+            return next_workday(datetime.strptime(s.strip(), fmt).date(), calendar=calendar)
         except ValueError:
             continue
     return None

@@ -154,3 +154,34 @@ def test_overview_partial_endpoint(client, app):
     assert "overview-hero" in html
     assert "Requirements" in html
     assert "Milestones" in html
+
+
+def test_overview_shows_baseline_and_variance(client, app):
+    with app.app_context():
+        proj = Project(name="Steering Variance")
+        db.session.add(proj)
+        db.session.flush()
+        lane = Lane(project_id=proj.id, name="Gates", sort_order=1)
+        db.session.add(lane)
+        db.session.flush()
+        m = Task(
+            project_id=proj.id,
+            code="M01",
+            kind=TASK_KIND_MILESTONE,
+            lane_id=lane.id,
+            name="SIT Ready",
+            start_date=date(2026, 11, 14),
+            duration_days=0,
+            baseline_start_date=date(2026, 11, 12),
+        )
+        db.session.add(m)
+        db.session.commit()
+        pid = proj.id
+
+    resp = client.get(f"/projects/{pid}/overview")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Schedule variance" in html
+    assert "+2d" in html
+    assert "SIT Ready" in html
+
