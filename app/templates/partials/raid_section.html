@@ -1,0 +1,170 @@
+<section class="raid-section raid-section--{{ kind }}">
+  <h6 class="raid-section-title">{{ raid_kind_labels[kind] }}</h6>
+
+  <form class="raid-add-form raid-add-form--{{ kind }}" method="POST"
+        action="{{ url_for('main.manage_raid', id=project.id) }}"
+        hx-post="{{ url_for('main.manage_raid', id=project.id) }}"
+        data-raid-add="{{ kind }}"
+        hx-target="#raid-content" hx-swap="innerHTML">
+    <input type="hidden" name="action" value="add">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="hidden" name="partial" value="raid">
+    <input class="form-control form-control-sm" name="title"
+           id="new-raid-title-{{ kind }}"
+           placeholder="{% if kind == 'decision' %}Decision summary{% else %}Short title{% endif %}"
+           required>
+    {% if kind == 'risk' %}
+    <select class="form-select form-select-sm" name="probability" aria-label="Probability">
+      <option value="">Probability</option>
+      {% for value, label in raid_level_choices %}
+      <option value="{{ value }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select class="form-select form-select-sm" name="impact" aria-label="Impact">
+      <option value="">Impact</option>
+      {% for value, label in raid_level_choices %}
+      <option value="{{ value }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% elif kind == 'issue' %}
+    <select class="form-select form-select-sm" name="severity" aria-label="Severity">
+      <option value="">Severity</option>
+      {% for value, label in raid_level_choices %}
+      <option value="{{ value }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    {% elif kind == 'assumption' %}
+    <textarea class="form-control form-control-sm" name="description" rows="1"
+              placeholder="Assumption detail (optional)"></textarea>
+    {% elif kind == 'decision' %}
+    <input class="form-control form-control-sm" name="decision_date"
+           placeholder="Decision date (optional)">
+    {% endif %}
+    <button class="btn btn-sm btn-outline-success" type="submit">
+      Add {{ raid_kind_labels[kind][:-1] | lower }}
+    </button>
+  </form>
+
+  <div class="raid-header raid-header--{{ kind }}" aria-hidden="true">
+    <span>ID</span>
+    <span>Title</span>
+    {% if kind == 'risk' %}
+    <span>Probability</span><span>Impact</span><span>Owner</span><span>Mitigation</span>
+    {% elif kind == 'assumption' %}
+    <span>Detail</span><span>Owner</span>
+    {% elif kind == 'issue' %}
+    <span>Severity</span><span>Owner</span><span>Due</span>
+    {% elif kind == 'decision' %}
+    <span>Date</span><span>Decision</span><span>Rationale</span><span>Owner</span>
+    {% endif %}
+    <span>Status</span><span></span><span></span>
+  </div>
+
+  {% for item in section_items %}
+  <div class="raid-row raid-row--{{ kind }}{% if item.status == 'closed' %} raid-row--closed{% endif %}">
+    <form id="raid-update-{{ item.id }}" class="raid-update-form" method="POST"
+          action="{{ url_for('main.manage_raid', id=project.id) }}"
+          hx-post="{{ url_for('main.manage_raid', id=project.id) }}"
+          hx-target="#raid-content" hx-swap="innerHTML">
+      <input type="hidden" name="action" value="update">
+      <input type="hidden" name="raid_id" value="{{ item.id }}">
+      <input type="hidden" name="partial" value="raid">
+      <div class="raid-code">{{ item.code }}</div>
+      <input class="form-control form-control-sm" name="title" value="{{ item.title }}"
+             aria-label="Title" required>
+      {% if kind == 'risk' %}
+      <select class="form-select form-select-sm" name="probability" aria-label="Probability">
+        <option value=""></option>
+        {% for value, label in raid_level_choices %}
+        <option value="{{ value }}"{% if item.probability == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select class="form-select form-select-sm" name="impact" aria-label="Impact">
+        <option value=""></option>
+        {% for value, label in raid_level_choices %}
+        <option value="{{ value }}"{% if item.impact == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select class="form-select form-select-sm" name="owner" aria-label="Owner">
+        <option value="">Unassigned</option>
+        {% if item.owner and not (members | selectattr('name', 'equalto', item.owner) | list) %}
+        <option value="{{ item.owner }}" selected>{{ item.owner }}</option>
+        {% endif %}
+        {% for member in members %}
+        <option value="{{ member.name }}"{% if item.owner == member.name %} selected{% endif %}>{{ member.name }}</option>
+        {% endfor %}
+      </select>
+      <textarea class="form-control form-control-sm" name="mitigation" rows="1"
+                placeholder="Mitigation">{{ item.mitigation or "" }}</textarea>
+      {% elif kind == 'assumption' %}
+      <textarea class="form-control form-control-sm" name="description" rows="1"
+                placeholder="Detail">{{ item.description or "" }}</textarea>
+      <select class="form-select form-select-sm" name="owner" aria-label="Owner">
+        <option value="">Unassigned</option>
+        {% if item.owner and not (members | selectattr('name', 'equalto', item.owner) | list) %}
+        <option value="{{ item.owner }}" selected>{{ item.owner }}</option>
+        {% endif %}
+        {% for member in members %}
+        <option value="{{ member.name }}"{% if item.owner == member.name %} selected{% endif %}>{{ member.name }}</option>
+        {% endfor %}
+      </select>
+      {% elif kind == 'issue' %}
+      <select class="form-select form-select-sm" name="severity" aria-label="Severity">
+        <option value=""></option>
+        {% for value, label in raid_level_choices %}
+        <option value="{{ value }}"{% if item.severity == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select class="form-select form-select-sm" name="owner" aria-label="Owner">
+        <option value="">Unassigned</option>
+        {% if item.owner and not (members | selectattr('name', 'equalto', item.owner) | list) %}
+        <option value="{{ item.owner }}" selected>{{ item.owner }}</option>
+        {% endif %}
+        {% for member in members %}
+        <option value="{{ member.name }}"{% if item.owner == member.name %} selected{% endif %}>{{ member.name }}</option>
+        {% endfor %}
+      </select>
+      <input class="form-control form-control-sm" name="due_date"
+             value="{{ fmt_date(item.due_date) if item.due_date else '' }}"
+             placeholder="Due date" aria-label="Due date">
+      {% elif kind == 'decision' %}
+      <input class="form-control form-control-sm" name="decision_date"
+             value="{{ fmt_date(item.decision_date) if item.decision_date else '' }}"
+             placeholder="Date" aria-label="Decision date">
+      <textarea class="form-control form-control-sm" name="decision_text" rows="1"
+                placeholder="Decision">{{ item.decision_text or "" }}</textarea>
+      <textarea class="form-control form-control-sm" name="rationale" rows="1"
+                placeholder="Rationale">{{ item.rationale or "" }}</textarea>
+      <select class="form-select form-select-sm" name="owner" aria-label="Owner">
+        <option value="">Unassigned</option>
+        {% if item.owner and not (members | selectattr('name', 'equalto', item.owner) | list) %}
+        <option value="{{ item.owner }}" selected>{{ item.owner }}</option>
+        {% endif %}
+        {% for member in members %}
+        <option value="{{ member.name }}"{% if item.owner == member.name %} selected{% endif %}>{{ member.name }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <select class="form-select form-select-sm" name="status" aria-label="Status">
+        {% for value, label in raid_status_choices %}
+        <option value="{{ value }}"{% if item.status == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    <button class="btn btn-sm btn-outline-secondary" type="submit"
+            form="raid-update-{{ item.id }}">Save</button>
+    <form method="POST"
+          action="{{ url_for('main.manage_raid', id=project.id) }}"
+          hx-post="{{ url_for('main.manage_raid', id=project.id) }}"
+          hx-target="#raid-content" hx-swap="innerHTML"
+          onsubmit="return confirm('Delete {{ item.code }}?');">
+      <input type="hidden" name="action" value="delete">
+      <input type="hidden" name="raid_id" value="{{ item.id }}">
+      <input type="hidden" name="partial" value="raid">
+      <button class="btn btn-sm btn-outline-danger" type="submit" aria-label="Delete">×</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="text-muted small mb-0 raid-empty">No {{ raid_kind_labels[kind] | lower }} yet.</p>
+  {% endfor %}
+</section>

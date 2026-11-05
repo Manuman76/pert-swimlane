@@ -207,6 +207,59 @@ def test_update_route_persists_pushed_dates(client, app):
         assert "13 Jun 2017" in html       # new end of B
 
 
+def test_set_predecessors_via_drag_endpoint(client, app):
+    with app.app_context():
+        proj, (lane,) = _new_project("PredDnD")
+        _add_task(proj, lane, "001", "A", date(2017, 6, 1), 3)
+        _add_task(proj, lane, "002", "B", date(2017, 6, 10), 1, "001")
+        t3 = _add_task(proj, lane, "003", "C", date(2017, 6, 5), 2)
+
+        resp = client.post(f"/tasks/{t3.id}/predecessors", data={"predecessors": "002"})
+        assert resp.status_code == 200
+
+        db.session.expire_all()
+        c = Task.query.filter_by(project_id=proj.id, code="003").one()
+        assert c.predecessors == "002"
+        assert c.start_date == date(2017, 6, 13)
+
+
+def test_set_predecessors_clear_and_reject_cycle(client, app):
+    with app.app_context():
+        proj, (lane,) = _new_project("PredClr")
+        t1 = _add_task(proj, lane, "001", "A", date(2017, 6, 1), 3)
+        t2 = _add_task(proj, lane, "002", "B", date(2017, 6, 10), 1, "001")
+
+        resp = client.post(f"/tasks/{t2.id}/predecessors", data={"predecessors": ""})
+        assert resp.status_code == 200
+        assert Task.query.get(t2.id).predecessors is None
+
+        resp = client.post(f"/tasks/{t2.id}/predecessors", data={"predecessors": "001"})
+        assert resp.status_code == 200
+
+        resp = client.post(f"/tasks/{t1.id}/predecessors", data={"predecessors": "002"})
+        assert resp.status_code == 422
+
+
+def test_bulk_set_predecessors_for_multiple_tasks(client, app):
+    with app.app_context():
+        proj, (lane,) = _new_project("PredBulk")
+        _add_task(proj, lane, "001", "A", date(2017, 6, 1), 3)
+        t2 = _add_task(proj, lane, "002", "B", date(2017, 6, 5), 2)
+        t3 = _add_task(proj, lane, "003", "C", date(2017, 6, 5), 2)
+
+        resp = client.post(f"/projects/{proj.id}/tasks/predecessors", data={
+            "predecessors": "001",
+            "task_ids": [str(t2.id), str(t3.id)],
+        })
+        assert resp.status_code == 200
+
+        db.session.expire_all()
+        assert Task.query.get(t2.id).predecessors == "001"
+        assert Task.query.get(t3.id).predecessors == "001"
+        assert Task.query.get(t2.id).start_date == date(2017, 6, 6)
+        assert Task.query.get(t3.id).start_date == date(2017, 6, 6)
+
+
 def test_update_route_persists_new_predecessor(client, app):
     with app.app_context():
         proj, (lane,) = _new_project("U2")

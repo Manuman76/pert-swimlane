@@ -59,6 +59,18 @@ def _migrate_schema():
             db.session.execute(
                 text(f"ALTER TABLE tasks ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT 0")
             )
+    task_text_cols = {
+        "description": "TEXT",
+        "notes": "TEXT",
+        "links": "TEXT",
+        "priority": "TEXT NOT NULL DEFAULT 'medium'",
+        "progress_percent": "INTEGER",
+        "kind": "TEXT NOT NULL DEFAULT 'task'",
+    }
+    for col, ddl in task_text_cols.items():
+        if col not in existing:
+            db.session.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}"))
+            existing.add(col)
 
     project_columns = {r[1] for r in db.session.execute(text("PRAGMA table_info(projects)"))}
     if "description" not in project_columns:

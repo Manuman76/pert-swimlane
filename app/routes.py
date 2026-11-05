@@ -9,13 +9,47 @@ from .models import (
     Task,
     TeamMember,
     Requirement,
+    RaidItem,
     MOSCOW_CHOICES,
     MOSCOW_VALUES,
     DEFAULT_MOSCOW,
+    RAID_KINDS,
+    RAID_KIND_LABELS,
+    RAID_KIND_RISK,
+    RAID_KIND_ASSUMPTION,
+    RAID_KIND_ISSUE,
+    RAID_KIND_DECISION,
+    RAID_CODE_PREFIX,
+    RAID_STATUS_CHOICES,
+    RAID_STATUS_VALUES,
+    RAID_STATUS_OPEN,
+    RAID_LEVEL_CHOICES,
+    RAID_LEVEL_VALUES,
+    PRIORITY_CHOICES,
+    PRIORITY_VALUES,
+    DEFAULT_PRIORITY,
+    TASK_KIND_TASK,
+    TASK_KIND_MILESTONE,
 )
 from .workdays import count_workdays, next_workday
+from .task_tree import build_task_tree_rows
+from .project_overview import build_project_overview, fmt_overview_day
 
 bp = Blueprint("main", __name__)
+
+
+def _task_table_render_kwargs(project, tasks, **extra):
+    """Shared context for the task grid partial (hierarchical row order)."""
+    return {
+        "project": project,
+        "lanes": lanes_in_order(project.id),
+        "tasks": tasks,
+        "task_rows": build_task_tree_rows(tasks),
+        "members": members_in_order(project.id),
+        "requirements": requirements_in_order(project.id),
+        "fmt_date": fmt_date,
+        **extra,
+    }
 
 
 def _parse_moscow(raw):
@@ -295,6 +329,25 @@ def requirements_in_order(project_id):
     ).all()
 
 
+def _overview_context(project, tasks=None):
+    if tasks is None:
+        tasks = Task.query.filter_by(project_id=project.id).all()
+    requirements = requirements_in_order(project.id)
+    raid_items = RaidItem.query.filter_by(project_id=project.id).all()
+    return {
+        "overview": build_project_overview(tasks, requirements, raid_items),
+        "fmt_overview_day": fmt_overview_day,
+    }
+
+
+def _requirements_partial_context(project):
+    return {
+        "project": project,
+        "requirements": requirements_in_order(project.id),
+        "moscow_choices": MOSCOW_CHOICES,
+    }
+
+
 def next_requirement_code(project_id):
     count = Requirement.query.filter_by(project_id=project_id).count() + 1
     while Requirement.query.filter_by(project_id=project_id, code=f"BR-{count:03d}").first():
@@ -302,11 +355,59 @@ def next_requirement_code(project_id):
     return f"BR-{count:03d}"
 
 
+def next_raid_code(project_id, kind):
+    prefix = f"{RAID_CODE_PREFIX[kind]}-"
+    max_num = 0
+    for item in RaidItem.query.filter_by(project_id=project_id, kind=kind):
+        if item.code.startswith(prefix):
+            suffix = item.code[len(prefix):]
+            if suffix.isdigit():
+                max_num = max(max_num, int(suffix))
+    return f"{prefix}{max_num + 1:03d}"
+
+
+def _parse_raid_kind(raw):
+    kind = (raw or "").strip().lower()
+    return kind if kind in RAID_KINDS else None
+
+
+def _parse_raid_status(raw, default=RAID_STATUS_OPEN):
+    value = (raw or default).strip().lower()
+    return value if value in RAID_STATUS_VALUES else default
+
+
+def _parse_raid_level(raw):
+    if raw is None or raw == "":
+        return None
+    value = raw.strip().lower()
+    return value if value in RAID_LEVEL_VALUES else None
+
+
+def _raid_context(project):
+    items = RaidItem.query.filter_by(project_id=project.id).order_by(
+        RaidItem.kind, RaidItem.code
+    ).all()
+    by_kind = {kind: [] for kind in RAID_KINDS}
+    for item in items:
+        by_kind[item.kind].append(item)
+    return {
+        "raid_by_kind": by_kind,
+        "raid_kinds": RAID_KINDS,
+        "raid_kind_labels": RAID_KIND_LABELS,
+        "raid_status_choices": RAID_STATUS_CHOICES,
+        "raid_level_choices": RAID_LEVEL_CHOICES,
+    }
+
+
 def validate_task(task, project_id, exclude_task_id=None, check_schedule=True):
     errors = []
     if not task.start_date:
         errors.append("Start date is missing or not a valid date.")
-    if task.duration_days is None or task.duration_days < 1:
+    is_milestone = getattr(task, "kind", TASK_KIND_TASK) == TASK_KIND_MILESTONE
+    if is_milestone:
+        if task.duration_days != 0:
+            errors.append("Milestones must have zero duration.")
+    elif task.duration_days is None or task.duration_days < 1:
         errors.append("Duration must be an integer >= 1.")
 
     if task.predecessors:
@@ -361,6 +462,70 @@ def validate_task(task, project_id, exclude_task_id=None, check_schedule=True):
     return errors
 
 
+def _validate_predecessors_change(task, project_id, new_preds):
+    """Return ``(normalized_predecessors, errors)`` for a dependency-only edit."""
+    normalized = (new_preds or "").strip() or None
+    temp = Task(
+        project_id=project_id,
+        code=task.code,
+        kind=task.kind,
+        lane_id=task.lane_id,
+        name=task.name,
+        start_date=task.start_date,
+        duration_days=task.duration_days,
+        responsible=task.responsible,
+        predecessors=normalized,
+        started=task.started,
+        done=task.done,
+    )
+    errors = validate_task(
+        temp, project_id, exclude_task_id=task.id, check_schedule=False
+    )
+    return normalized, errors
+
+
+def _set_tasks_predecessors(project_id, task_ids, raw_predecessors):
+    """Update predecessors on many tasks; recalculate once. Returns ``errors`` dict."""
+    proj = Project.query.get_or_404(project_id)
+    errors = {}
+    any_change = False
+    seen_ids = set()
+
+    for raw_id in task_ids:
+        try:
+            tid = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if tid in seen_ids:
+            continue
+        seen_ids.add(tid)
+        task = Task.query.filter_by(id=tid, project_id=proj.id).first()
+        if not task:
+            continue
+        new_preds, task_errors = _validate_predecessors_change(task, proj.id, raw_predecessors)
+        if task_errors:
+            errors[task.id] = task_errors
+            continue
+        if (new_preds or "") != (task.predecessors or ""):
+            task.predecessors = new_preds
+            any_change = True
+
+    if any_change:
+        recalculate_project(proj.id)
+        db.session.commit()
+
+    return errors
+
+
+def _task_table_swap_response(proj, tasks, **extra):
+    response = make_response(render_template(
+        "partials/task_table_body.html",
+        **_task_table_render_kwargs(proj, tasks, **extra),
+    ))
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshRequirements"
+    return response
+
+
 # Routes for tasks
 # ---------------------------------------------------------------------------
 
@@ -374,7 +539,9 @@ def project_date_stats(tasks):
     """
     if not tasks:
         return 0, 0, None, None
-    total_effort = sum(t.duration_days for t in tasks)
+    total_effort = sum(
+        t.duration_days for t in tasks if t.kind != TASK_KIND_MILESTONE
+    )
     project_start = min(t.start_date for t in tasks)
     project_end = max(t.end_date for t in tasks)
     return total_effort, count_workdays(project_start, project_end), project_start, project_end
@@ -399,11 +566,6 @@ def manage_requirements(id):
             status=request.form.get("status", "open"),
         )
         db.session.add(requirement)
-    elif action == "toggle_done":
-        requirement = Requirement.query.filter_by(
-            id=requirement_id, project_id=proj.id
-        ).first_or_404()
-        requirement.status = "done" if request.form.get("done") else "open"
     elif action in ("update", "delete"):
         requirement = Requirement.query.filter_by(
             id=requirement_id, project_id=proj.id
@@ -424,11 +586,97 @@ def manage_requirements(id):
     if request.form.get("partial") == "requirements":
         return render_template(
             "partials/requirements.html",
-            project=proj,
-            requirements=requirements_in_order(proj.id),
-            moscow_choices=MOSCOW_CHOICES,
+            **_requirements_partial_context(proj),
         )
     return redirect(url_for("main.project", id=proj.id) + "#requirements")
+
+
+@bp.route("/projects/<int:id>/requirements/list")
+def requirements_list_partial(id):
+    proj = Project.query.get_or_404(id)
+    return render_template(
+        "partials/requirements.html",
+        **_requirements_partial_context(proj),
+    )
+
+
+@bp.route("/projects/<int:id>/raid", methods=["POST"])
+def manage_raid(id):
+    proj = Project.query.get_or_404(id)
+    action = request.form.get("action")
+    raid_id = request.form.get("raid_id", type=int)
+    kind = _parse_raid_kind(request.form.get("kind"))
+
+    if action == "add":
+        if not kind:
+            return "RAID item type is required", 400
+        title = request.form.get("title", "").strip()
+        if not title:
+            return "Title is required", 400
+        item = RaidItem(
+            project_id=proj.id,
+            kind=kind,
+            code=next_raid_code(proj.id, kind),
+            title=title,
+            description=request.form.get("description", "").strip() or None,
+            owner=request.form.get("owner", "").strip() or None,
+            status=_parse_raid_status(request.form.get("status")),
+        )
+        if kind == RAID_KIND_RISK:
+            item.probability = _parse_raid_level(request.form.get("probability"))
+            item.impact = _parse_raid_level(request.form.get("impact"))
+            item.mitigation = request.form.get("mitigation", "").strip() or None
+        elif kind == RAID_KIND_ISSUE:
+            item.severity = _parse_raid_level(request.form.get("severity"))
+            due_raw = request.form.get("due_date", "").strip()
+            item.due_date = parse_date(due_raw) if due_raw else None
+        elif kind == RAID_KIND_DECISION:
+            date_raw = request.form.get("decision_date", "").strip()
+            item.decision_date = parse_date(date_raw) if date_raw else None
+            item.decision_text = request.form.get("decision_text", "").strip() or None
+            item.rationale = request.form.get("rationale", "").strip() or None
+        db.session.add(item)
+    elif action in ("update", "delete"):
+        item = RaidItem.query.filter_by(id=raid_id, project_id=proj.id).first_or_404()
+        if action == "delete":
+            db.session.delete(item)
+        else:
+            title = request.form.get("title", "").strip()
+            if not title:
+                return "Title is required", 400
+            item.title = title
+            item.description = request.form.get("description", "").strip() or None
+            owner_raw = request.form.get("owner")
+            item.owner = owner_raw.strip() if owner_raw else None
+            if item.owner == "":
+                item.owner = None
+            item.status = _parse_raid_status(request.form.get("status"), item.status)
+            if item.kind == RAID_KIND_RISK:
+                item.probability = _parse_raid_level(request.form.get("probability"))
+                item.impact = _parse_raid_level(request.form.get("impact"))
+                item.mitigation = request.form.get("mitigation", "").strip() or None
+            elif item.kind == RAID_KIND_ISSUE:
+                item.severity = _parse_raid_level(request.form.get("severity"))
+                due_raw = request.form.get("due_date", "").strip()
+                item.due_date = parse_date(due_raw) if due_raw else None
+            elif item.kind == RAID_KIND_DECISION:
+                date_raw = request.form.get("decision_date", "").strip()
+                item.decision_date = parse_date(date_raw) if date_raw else None
+                item.decision_text = request.form.get("decision_text", "").strip() or None
+                item.rationale = request.form.get("rationale", "").strip() or None
+    else:
+        return "Unknown RAID action", 400
+
+    db.session.commit()
+    if request.form.get("partial") == "raid":
+        ctx = _raid_context(proj)
+        ctx.update({
+            "project": proj,
+            "members": members_in_order(proj.id),
+            "fmt_date": fmt_date,
+        })
+        return render_template("partials/raid_pane.html", **ctx)
+    return redirect(url_for("main.project", id=proj.id) + "#raid")
 
 
 @bp.route("/projects/<int:id>", methods=["GET"])
@@ -437,13 +685,28 @@ def project(id):
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
     total_effort, total_duration, project_start, project_end = project_date_stats(tasks)
+    table_ctx = _task_table_render_kwargs(proj, tasks)
     return render_template("project.html", project=proj, lanes=lanes, tasks=tasks,
-                           members=members_in_order(proj.id),
-                           requirements=requirements_in_order(proj.id),
+                           task_rows=table_ctx["task_rows"],
+                           members=table_ctx["members"],
+                           requirements=table_ctx["requirements"],
                            moscow_choices=MOSCOW_CHOICES,
                            fmt_date=fmt_date, total_effort=total_effort,
                            total_duration=total_duration,
-                           project_start=project_start, project_end=project_end)
+                           project_start=project_start, project_end=project_end,
+                           **_raid_context(proj),
+                           **_overview_context(proj, tasks))
+
+
+@bp.route("/projects/<int:id>/overview")
+def project_overview_partial(id):
+    proj = Project.query.get_or_404(id)
+    tasks = Task.query.filter_by(project_id=proj.id).all()
+    return render_template(
+        "partials/project_overview.html",
+        project=proj,
+        **_overview_context(proj, tasks),
+    )
 
 
 @bp.route("/projects/<int:id>/settings", methods=["POST"])
@@ -542,13 +805,19 @@ def create_task(id):
         lane = (Lane.query.filter_by(id=last.lane_id, project_id=proj.id).first()
                 if last else None) or lanes[-1]
 
+    kind = request.form.get("kind", TASK_KIND_TASK).strip().lower()
+    if kind not in (TASK_KIND_TASK, TASK_KIND_MILESTONE):
+        kind = TASK_KIND_TASK
+    is_milestone = kind == TASK_KIND_MILESTONE
+
     task = Task(
         project_id=proj.id,
         code=next_task_code(proj.id),
+        kind=kind,
         lane_id=lane.id,
-        name="New Task",
+        name="New Milestone" if is_milestone else "New Task",
         start_date=next_workday(date.today()),
-        duration_days=1,
+        duration_days=0 if is_milestone else 1,
         responsible=None,
         predecessors=None,
     )
@@ -563,8 +832,11 @@ def create_task(id):
 
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, members=members_in_order(proj.id), requirements=requirements_in_order(proj.id), fmt_date=fmt_date))
-    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
+    response = make_response(render_template(
+        "partials/task_table_body.html",
+        **_task_table_render_kwargs(proj, tasks),
+    ))
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshRequirements"
     return response
 
 
@@ -598,7 +870,9 @@ def update_task(task_id):
     new_start = parse_date(start_raw) if start_raw else task.start_date
 
     dur_raw = request.form.get("duration_days", "").strip()
-    if dur_raw:
+    if task.kind == TASK_KIND_MILESTONE:
+        new_dur = 0
+    elif dur_raw:
         if dur_raw.isdigit():
             new_dur = int(dur_raw)
         else:
@@ -619,7 +893,10 @@ def update_task(task_id):
         ).first()
         if selected_requirement is None:
             lane_error = lane_error or "Business requirement must belong to this project."
-    new_preds = request.form.get("predecessors", task.predecessors or "").strip() or None
+    if "predecessors" in request.form:
+        new_preds = request.form.get("predecessors", "").strip() or None
+    else:
+        new_preds = task.predecessors
     # Status dropdown: 'not_started' | 'started' | 'done'. If absent, keep current state.
     status_value = request.form.get("status")
     if status_value not in ("not_started", "started", "done"):
@@ -631,6 +908,7 @@ def update_task(task_id):
     temp = Task(
         project_id=proj.id,
         code=task.code,
+        kind=task.kind,
         lane_id=new_lane_id,
         name=new_name,
         start_date=new_start,
@@ -660,25 +938,23 @@ def update_task(task_id):
         tasks = Task.query.filter_by(project_id=proj.id).all()
         response = make_response(render_template(
             "partials/task_table_body.html",
-            project=proj,
-            lanes=lanes,
-            tasks=tasks,
-            members=members_in_order(proj.id),
-            requirements=requirements_in_order(proj.id),
-            errors={task.id: errors},
-            drafts={
-                task.id: {
-                    "name": new_name,
-                    "lane_id": new_lane_id,
-                    "lane_name": new_lane_name or None,
-                    "start_date": new_start if new_start else None,
-                    "duration_days": new_dur if new_dur >= 0 else None,
-                    "responsible": new_resp,
-                    "requirement_id": request.form.get("requirement_id", type=int),
-                    "predecessors": new_preds,
-                }
-            },
-            fmt_date=fmt_date,
+            **_task_table_render_kwargs(
+                proj,
+                tasks,
+                errors={task.id: errors},
+                drafts={
+                    task.id: {
+                        "name": new_name,
+                        "lane_id": new_lane_id,
+                        "lane_name": new_lane_name or None,
+                        "start_date": new_start if new_start else None,
+                        "duration_days": new_dur if new_dur >= 0 else None,
+                        "responsible": new_resp,
+                        "requirement_id": request.form.get("requirement_id", type=int),
+                        "predecessors": new_preds,
+                    }
+                },
+            ),
         ))
         response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
         return response, 422
@@ -699,9 +975,60 @@ def update_task(task_id):
 
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, members=members_in_order(proj.id), requirements=requirements_in_order(proj.id), fmt_date=fmt_date))
-    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
+    response = make_response(render_template(
+        "partials/task_table_body.html",
+        **_task_table_render_kwargs(proj, tasks),
+    ))
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshRequirements"
     return response
+
+
+@bp.route("/projects/<int:id>/tasks/predecessors", methods=["POST"])
+def set_tasks_predecessors(id):
+    """Bulk-set predecessors for drag-and-drop multi-select in the task grid."""
+    proj = Project.query.get_or_404(id)
+    if "predecessors" not in request.form:
+        return "Missing predecessors field", 400
+    raw = request.form.get("predecessors")
+    task_ids = request.form.getlist("task_ids")
+    if not task_ids:
+        single = request.form.get("task_ids", "").strip()
+        if single:
+            task_ids = [p.strip() for p in single.split(",") if p.strip()]
+    if not task_ids:
+        return "Missing task_ids", 400
+
+    errors = _set_tasks_predecessors(proj.id, task_ids, raw)
+    tasks = Task.query.filter_by(project_id=proj.id).all()
+    extra = {"errors": errors} if errors else {}
+    response = _task_table_swap_response(proj, tasks, **extra)
+    if errors:
+        response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+        return response, 422
+    return response
+
+
+@bp.route("/tasks/<int:task_id>/predecessors", methods=["POST"])
+def set_task_predecessors(task_id):
+    """Set comma-separated predecessors (used by drag-and-drop in the task grid)."""
+    task = Task.query.get_or_404(task_id)
+    proj = Project.query.get_or_404(task.project_id)
+    raw = request.form.get("predecessors")
+    if raw is None:
+        return "Missing predecessors field", 400
+
+    errors = _set_tasks_predecessors(proj.id, [str(task.id)], raw)
+    tasks = Task.query.filter_by(project_id=proj.id).all()
+    if errors.get(task.id):
+        response = _task_table_swap_response(
+            proj,
+            tasks,
+            errors={task.id: errors[task.id]},
+        )
+        response.headers["HX-Trigger-After-Swap"] = "refreshDiagram"
+        return response, 422
+
+    return _task_table_swap_response(proj, tasks)
 
 
 @bp.route("/tasks/<int:task_id>/delete", methods=["POST"])
@@ -728,8 +1055,11 @@ def delete_task(task_id):
 
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    response = make_response(render_template("partials/task_table_body.html", project=proj, lanes=lanes, tasks=tasks, members=members_in_order(proj.id), requirements=requirements_in_order(proj.id), fmt_date=fmt_date))
-    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram"
+    response = make_response(render_template(
+        "partials/task_table_body.html",
+        **_task_table_render_kwargs(proj, tasks),
+    ))
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshRequirements"
     return response
 
 
@@ -751,6 +1081,182 @@ def export_jira_csv(id):
     response.headers["Content-Disposition"] = (
         f'attachment; filename="{export_filename(proj)}"'
     )
+    return response
+
+
+def task_successors(task, all_tasks):
+    code = task.code
+    return sorted(
+        [t for t in all_tasks if code in t.predecessor_codes()],
+        key=lambda t: (t.start_date, t.code),
+    )
+
+
+def _task_detail_context(task, proj):
+    from .diagram import STATUS_STYLES
+
+    all_tasks = Task.query.filter_by(project_id=proj.id).all()
+    by_code = {t.code: t for t in all_tasks}
+    predecessor_tasks = [
+        by_code[c] for c in task.predecessor_codes() if c in by_code
+    ]
+    req = task.requirements[0] if task.requirements else None
+    return {
+        "task": task,
+        "project": proj,
+        "predecessor_tasks": predecessor_tasks,
+        "successor_tasks": task_successors(task, all_tasks),
+        "linked_requirement": req,
+        "lanes": lanes_in_order(proj.id),
+        "members": members_in_order(proj.id),
+        "requirements": requirements_in_order(proj.id),
+        "priority_choices": PRIORITY_CHOICES,
+        "status_styles": STATUS_STYLES,
+        "fmt_date": fmt_date,
+    }
+
+
+@bp.route("/projects/<int:id>/task-detail-empty", methods=["GET"])
+def task_detail_empty(id):
+    Project.query.get_or_404(id)
+    return render_template("partials/task_detail_empty.html")
+
+
+@bp.route("/tasks/<int:task_id>/detail", methods=["GET"])
+def task_detail(task_id):
+    task = Task.query.get_or_404(task_id)
+    proj = Project.query.get_or_404(task.project_id)
+    return render_template(
+        "partials/task_detail_panel.html",
+        **_task_detail_context(task, proj),
+    )
+
+
+@bp.route("/tasks/<int:task_id>/detail", methods=["POST"])
+def update_task_detail(task_id):
+    task = Task.query.get_or_404(task_id)
+    proj = Project.query.get_or_404(task.project_id)
+    errors = []
+
+    new_name = request.form.get("name", task.name).strip()
+    if not new_name:
+        errors.append("Task name is required.")
+
+    new_description = request.form.get("description", "").strip() or None
+    new_notes = request.form.get("notes", "").strip() or None
+    new_links = request.form.get("links", "").strip() or None
+
+    new_priority = task.priority or DEFAULT_PRIORITY
+    priority_raw = (request.form.get("priority") or new_priority).strip().lower()
+    if priority_raw not in PRIORITY_VALUES:
+        errors.append("Invalid priority.")
+    else:
+        new_priority = priority_raw
+
+    progress_raw = request.form.get("progress_percent", "").strip()
+    if progress_raw == "":
+        new_progress = None
+    elif progress_raw.isdigit():
+        new_progress = max(0, min(100, int(progress_raw)))
+    else:
+        errors.append("Progress must be a whole number from 0 to 100.")
+        new_progress = task.progress_percent
+
+    lane_name_raw = request.form.get("lane_name", "").strip()
+    new_lane_id = task.lane_id
+    selected_lane = Lane.query.filter(
+        Lane.project_id == proj.id,
+        db.func.lower(Lane.name) == lane_name_raw.lower(),
+    ).first() if lane_name_raw else None
+    if not selected_lane:
+        errors.append("Lane must be selected from the project's swimlanes.")
+    else:
+        new_lane_id = selected_lane.id
+
+    start_raw = request.form.get("start_date", "").strip()
+    new_start = parse_date(start_raw) if start_raw else task.start_date
+
+    dur_raw = request.form.get("duration_days", "").strip()
+    if task.kind == TASK_KIND_MILESTONE:
+        new_dur = 0
+    elif dur_raw and dur_raw.isdigit():
+        new_dur = int(dur_raw)
+    elif dur_raw:
+        new_dur = -1
+        errors.append("Duration must be an integer >= 1.")
+    else:
+        new_dur = task.duration_days
+
+    responsible_raw = request.form.get("responsible")
+    new_resp = (
+        responsible_raw.strip() if responsible_raw is not None
+        else (task.responsible or "")
+    ) or None
+    if new_resp:
+        member_names = {m.name for m in members_in_order(proj.id)}
+        if new_resp not in member_names and new_resp != task.responsible:
+            errors.append("Responsible must be an available team member.")
+
+    requirement_raw = request.form.get("requirement_id")
+    selected_requirement = None
+    if requirement_raw:
+        selected_requirement = Requirement.query.filter_by(
+            id=request.form.get("requirement_id", type=int), project_id=proj.id
+        ).first()
+        if selected_requirement is None:
+            errors.append("Business requirement must belong to this project.")
+
+    status_value = request.form.get("status", task.status)
+    if status_value not in ("not_started", "started", "done"):
+        status_value = task.status
+    started_by_status = status_value in ("started", "done")
+    done_by_status = status_value == "done"
+
+    temp = Task(
+        project_id=proj.id,
+        code=task.code,
+        kind=task.kind,
+        lane_id=new_lane_id if not errors else task.lane_id,
+        name=new_name or task.name,
+        start_date=new_start,
+        duration_days=new_dur if new_dur >= 0 else task.duration_days,
+        responsible=new_resp,
+        predecessors=task.predecessors,
+        started=started_by_status,
+        done=done_by_status,
+    )
+    if not errors:
+        errors.extend(validate_task(temp, proj.id, exclude_task_id=task.id, check_schedule=False))
+
+    if errors:
+        ctx = _task_detail_context(task, proj)
+        ctx["panel_errors"] = errors
+        ctx["draft"] = request.form
+        response = make_response(render_template("partials/task_detail_panel.html", **ctx))
+        return response, 422
+
+    task.name = new_name
+    task.description = new_description
+    task.notes = new_notes
+    task.links = new_links
+    task.priority = new_priority
+    task.progress_percent = new_progress
+    task.lane_id = new_lane_id
+    task.start_date = new_start
+    task.duration_days = new_dur
+    task.responsible = new_resp
+    task.requirements = [selected_requirement] if selected_requirement else []
+    task.started = started_by_status
+    task.done = done_by_status
+
+    recalculate_project(proj.id)
+    db.session.commit()
+
+    response = make_response(render_template(
+        "partials/task_detail_panel.html",
+        **_task_detail_context(task, proj),
+    ))
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid, refreshRequirements"
     return response
 
 

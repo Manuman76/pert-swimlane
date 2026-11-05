@@ -1,0 +1,215 @@
+{% set st = status_styles.get(task.status, status_styles.get('not_started', {})) %}
+{% if draft %}
+  {% set d_name = draft.get('name', task.name) %}
+  {% set d_description = draft.get('description', task.description or '') %}
+  {% set d_notes = draft.get('notes', task.notes or '') %}
+  {% set d_links = draft.get('links', task.links or '') %}
+  {% set d_priority = draft.get('priority', task.priority) %}
+  {% set d_progress = draft.get('progress_percent', '') %}
+  {% set d_lane = draft.get('lane_name', task.lane.name) %}
+  {% set d_start = draft.get('start_date', fmt_date(task.start_date)) %}
+  {% set d_dur = draft.get('duration_days', task.duration_days) %}
+  {% set d_resp = draft.get('responsible', task.responsible or '') %}
+  {% set d_req = draft.get('requirement_id', linked_requirement.id if linked_requirement else '') %}
+  {% set d_status = draft.get('status', task.status) %}
+{% else %}
+  {% set d_name = task.name %}
+  {% set d_description = task.description or '' %}
+  {% set d_notes = task.notes or '' %}
+  {% set d_links = task.links or '' %}
+  {% set d_priority = task.priority or 'medium' %}
+  {% set d_progress = task.progress_percent if task.progress_percent is not none else '' %}
+  {% set d_lane = task.lane.name %}
+  {% set d_start = fmt_date(task.start_date) %}
+  {% set d_dur = task.duration_days %}
+  {% set d_resp = task.responsible or '' %}
+  {% set d_req = linked_requirement.id if linked_requirement else '' %}
+  {% set d_status = task.status %}
+{% endif %}
+<div class="task-detail-panel-inner" data-task-id="{{ task.id }}" data-task-code="{{ task.code }}">
+  <div class="task-detail-header">
+    <div class="task-detail-title">
+      <span class="task-detail-code">{% if task.is_milestone %}Milestone{% else %}Task{% endif %} {{ task.code }}</span>
+      <span class="task-detail-name">{{ d_name }}</span>
+    </div>
+    <button type="button" class="btn btn-sm btn-link task-detail-close p-0"
+            hx-get="{{ url_for('main.task_detail_empty', id=project.id) }}"
+            hx-target="#task-detail-panel"
+            hx-swap="innerHTML"
+            aria-label="Close task details">&times;</button>
+  </div>
+  <hr class="task-detail-rule">
+
+  {% if panel_errors %}
+  <div class="alert alert-danger py-2 px-3 small mb-3">
+    {% for e in panel_errors %}<div>{{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <form id="task-detail-form" method="POST"
+        action="{{ url_for('main.update_task_detail', task_id=task.id) }}"
+        hx-post="{{ url_for('main.update_task_detail', task_id=task.id) }}"
+        hx-target="#task-detail-panel"
+        hx-swap="innerHTML">
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-name">Title</label>
+      <input class="form-control form-control-sm" id="detail-name" name="name"
+             value="{{ d_name }}" required maxlength="200">
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-description">Description</label>
+      <textarea class="form-control form-control-sm" id="detail-description" name="description"
+                rows="4" placeholder="What is this task about?">{{ d_description }}</textarea>
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-status">Status</label>
+      <select class="form-select form-select-sm" id="detail-status" name="status">
+        <option value="not_started" {% if d_status == 'not_started' %}selected{% endif %}>Not started</option>
+        <option value="started" {% if d_status == 'started' %}selected{% endif %}>Started</option>
+        <option value="done" {% if d_status == 'done' %}selected{% endif %}>Done</option>
+      </select>
+      <div class="task-detail-status-hint small text-muted mt-1">
+        <span style="color:{{ st.bar }}">{{ st.icon }}</span> {{ st.label }}
+      </div>
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-responsible">Responsible</label>
+      <select class="form-select form-select-sm" id="detail-responsible" name="responsible">
+        <option value="">Unassigned</option>
+        {% for member in members %}
+        <option value="{{ member.name }}" {% if d_resp == member.name %}selected{% endif %}>{{ member.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label">{% if task.is_milestone %}Target date{% else %}Schedule{% endif %}</label>
+      <div class="row g-2">
+        <div class="{% if task.is_milestone %}col-12{% else %}col-6{% endif %}">
+          <label class="visually-hidden" for="detail-start">{% if task.is_milestone %}Target date{% else %}Start{% endif %}</label>
+          <input class="form-control form-control-sm" id="detail-start" name="start_date"
+                 value="{{ d_start }}" placeholder="{% if task.is_milestone %}Target date{% else %}Start{% endif %}">
+        </div>
+        {% if not task.is_milestone %}
+        <div class="col-6">
+          <label class="visually-hidden" for="detail-end">End (computed)</label>
+          <input class="form-control form-control-sm" type="text" readonly tabindex="-1"
+                 value="{{ fmt_date(task.end_date) }}" title="Computed from start and effort">
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if not task.is_milestone %}
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-duration">Effort (working days)</label>
+      <input class="form-control form-control-sm" id="detail-duration" name="duration_days"
+             type="number" min="1" value="{{ d_dur }}">
+    </div>
+    {% else %}
+    <input type="hidden" name="duration_days" value="0">
+    <p class="small text-muted mb-3">Milestones are zero-duration checkpoints on the target date.</p>
+    {% endif %}
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-progress">Progress</label>
+      <div class="input-group input-group-sm">
+        <input class="form-control" id="detail-progress" name="progress_percent"
+               type="number" min="0" max="100" step="5"
+               value="{{ d_progress if d_progress != '' else '' }}"
+               placeholder="Auto">
+        <span class="input-group-text">%</span>
+      </div>
+      <div class="task-detail-progress-bar mt-2" aria-hidden="true">
+        <span style="width: {{ task.display_progress }}%"></span>
+      </div>
+      <p class="small text-muted mb-0 mt-1">Shown: {{ task.display_progress }}%. Leave blank to infer from status.</p>
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-priority">Priority</label>
+      <select class="form-select form-select-sm" id="detail-priority" name="priority">
+        {% for value, label in priority_choices %}
+        <option value="{{ value }}" {% if d_priority == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-lane">Swimlane</label>
+      <select class="form-select form-select-sm" id="detail-lane" name="lane_name">
+        {% for lane in lanes %}
+        <option value="{{ lane.name }}" {% if d_lane == lane.name %}selected{% endif %}>{{ lane.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-requirement">Business requirement</label>
+      <select class="form-select form-select-sm" id="detail-requirement" name="requirement_id">
+        <option value="">No BR</option>
+        {% for requirement in requirements %}
+        <option value="{{ requirement.id }}" {% if d_req and d_req|int == requirement.id %}selected{% endif %}>
+          {{ requirement.code }} — {{ requirement.title }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="task-detail-field">
+      <span class="task-detail-label">Dependencies</span>
+      <div class="task-detail-deps small">
+        {% if predecessor_tasks %}
+        <div class="task-detail-dep-group">
+          <span class="text-muted">Predecessors</span>
+          <ul class="list-unstyled mb-2">
+            {% for pred in predecessor_tasks %}
+            <li>
+              <button type="button" class="btn btn-link btn-sm p-0 task-detail-dep-link"
+                      hx-get="{{ url_for('main.task_detail', task_id=pred.id) }}"
+                      hx-target="#task-detail-panel"
+                      hx-swap="innerHTML">&larr; {{ pred.code }} {{ pred.name }}</button>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        {% if successor_tasks %}
+        <div class="task-detail-dep-group">
+          <span class="text-muted">Successors</span>
+          <ul class="list-unstyled mb-0">
+            {% for succ in successor_tasks %}
+            <li>
+              <button type="button" class="btn btn-link btn-sm p-0 task-detail-dep-link"
+                      hx-get="{{ url_for('main.task_detail', task_id=succ.id) }}"
+                      hx-target="#task-detail-panel"
+                      hx-swap="innerHTML">&rarr; {{ succ.code }} {{ succ.name }}</button>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        {% if not predecessor_tasks and not successor_tasks %}
+        <p class="text-muted mb-0">No linked tasks. Drag tasks in the grid to set predecessors.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-notes">Notes</label>
+      <textarea class="form-control form-control-sm" id="detail-notes" name="notes"
+                rows="3" placeholder="Meeting notes, reminders…">{{ d_notes }}</textarea>
+    </div>
+
+    <div class="task-detail-field">
+      <label class="task-detail-label" for="detail-links">Attachments / links</label>
+      <textarea class="form-control form-control-sm" id="detail-links" name="links"
+                rows="3" placeholder="One per line: label or URL">{{ d_links }}</textarea>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-sm w-100">Save details</button>
+  </form>
+</div>

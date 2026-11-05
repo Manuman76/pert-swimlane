@@ -3,6 +3,8 @@ from datetime import timedelta
 
 CARD_W = 168
 CARD_H = 108  # tall enough for a two-line title
+MILESTONE_W = 52
+MILESTONE_H = 52
 GAP_X = 24
 V_GAP = 16
 LANE_H = 140
@@ -19,6 +21,18 @@ STATUS_STYLES = {
     "started": {"border": "#f39c12", "bar": "#f39c12", "label": "Started", "icon": "\u25d1"},
     "done": {"border": "#27ae60", "bar": "#27ae60", "label": "Done", "icon": "\u2713"},
 }
+
+
+def _layout_node(task, slot_x, slot_y):
+    """Return pixel box (x, y, w, h) for a task card or centered milestone diamond."""
+    if task.is_milestone:
+        w, h = MILESTONE_W, MILESTONE_H
+        x = slot_x + (CARD_W - w) / 2
+        y = slot_y + (CARD_H - h) / 2
+    else:
+        w, h = CARD_W, CARD_H
+        x, y = slot_x, slot_y
+    return x, y, w, h
 
 
 def build_diagram(lanes, tasks):
@@ -60,10 +74,8 @@ def build_diagram(lanes, tasks):
             if in_deg[d] == 0:
                 queue.append(d)
 
-    # Build positions. Within a lane, tasks that share the same (non-empty)
-    # predecessor set are siblings: they occupy the same column and stack
-    # vertically. This keeps their shared incoming arrow from crossing the
-    # other sibling's card.
+    # Build positions. Within a lane, tasks that share the same predecessor
+    # set (including none) are siblings: same column, stacked vertically.
     positions = {}  # task.code -> {x, y, lane_idx, idx_in_lane, col, row}
     lane_tops = {}  # lane.id -> top offset (px)
     lane_heights = {}  # lane.id -> band height (px)
@@ -72,20 +84,20 @@ def build_diagram(lanes, tasks):
         li = lane_index[lane.id]
         col = None
         rows_in_col = {}      # col -> number of stacked cards
-        col_for_preds = {}    # predecessor signature -> col
+        col_for_preds = {}    # predecessor signature (or () for roots) -> col
         placements = []
         for idx, task in enumerate(tasks_by_lane[lane.id]):
             preds = tuple(sorted(
                 p for p in task.predecessor_codes() if p in all_tasks_map
             ))
-            if preds and preds in col_for_preds:
-                c = col_for_preds[preds]
+            group_key = preds if preds else ()
+            if group_key in col_for_preds:
+                c = col_for_preds[group_key]
             else:
                 base = min_col[task.code]
-                c = base if col is None else max(base, col + 1)
-                col = c
-                if preds:
-                    col_for_preds[preds] = c
+                c = base
+                col_for_preds[group_key] = c
+                col = c if col is None else max(col, c)
             r = rows_in_col.get(c, 0)
             rows_in_col[c] = r + 1
             placements.append((task, idx, c, r))
@@ -98,11 +110,14 @@ def build_diagram(lanes, tasks):
         lane_heights[lane.id] = lane_h
 
         for task, idx, c, r in placements:
-            x = LANE_LABEL_W + GAP_X + c * (CARD_W + GAP_X)
-            y = y_cursor + top_pad + r * (CARD_H + V_GAP)
+            slot_x = LANE_LABEL_W + GAP_X + c * (CARD_W + GAP_X)
+            slot_y = y_cursor + top_pad + r * (CARD_H + V_GAP)
+            x, y, w, h = _layout_node(task, slot_x, slot_y)
             positions[task.code] = {
                 "x": x,
                 "y": y,
+                "w": w,
+                "h": h,
                 "lane_idx": li,
                 "idx_in_lane": idx,
                 "col": c,
@@ -114,7 +129,7 @@ def build_diagram(lanes, tasks):
     # Canvas size
     max_width = LANE_LABEL_W + RIGHT_MARGIN
     for p in positions.values():
-        max_width = max(max_width, p["x"] + CARD_W + RIGHT_MARGIN)
+        max_width = max(max_width, p["x"] + p["w"] + RIGHT_MARGIN)
     canvas_h = y_cursor + 20
 
     # Status colors per task
@@ -139,15 +154,61 @@ def build_diagram(lanes, tasks):
         v_offsets[key] = off + 8
         return off
 
-    def v_seg_clash(x, y1, y2):
+    def v_seg_clash(x, y1, y2, skip=frozenset()):
         """True if a vertical segment at x between y1 and y2 crosses a card."""
         lo, hi = min(y1, y2), max(y1, y2)
-        for p in positions.values():
-            if not (p["x"] < x < p["x"] + CARD_W):
+        for code, p in positions.items():
+            if code in skip:
                 continue
-            if lo < p["y"] + CARD_H and hi > p["y"]:
+            if not (p["x"] < x < p["x"] + p["w"]):
+                continue
+            if lo < p["y"] + p["h"] and hi > p["y"]:
                 return True
         return False
+
+    def h_seg_clash(y, x1, x2, skip=frozenset()):
+        """True if a horizontal segment at y between x1 and x2 crosses a card."""
+        lo, hi = min(x1, x2), max(x1, x2)
+        for code, p in positions.items():
+            if code in skip:
+                continue
+            if not (p["y"] < y < p["y"] + p["h"]):
+                continue
+            if lo < p["x"] + p["w"] and hi > p["x"]:
+                return True
+        return False
+
+    def route_forward_elbow(ax1, ay1, ax2, ay2, src_code, dst_code):
+        """Right stub -> vertical -> left stub, avoiding card interiors."""
+        skip = frozenset({src_code, dst_code})
+        stub = 12
+        candidates = []
+        gap_lo = ax1 + stub
+        gap_hi = ax2 - stub
+        if gap_hi > gap_lo:
+            candidates.append((gap_lo + gap_hi) / 2)
+        candidates.append(gap_lo)
+        candidates.append(gap_hi)
+        for step in range(8, 160, 8):
+            candidates.append(gap_lo + step)
+            candidates.append(gap_hi - step)
+        seen = set()
+        for mid_x in candidates:
+            mid_x = round(mid_x, 2)
+            if mid_x in seen:
+                continue
+            seen.add(mid_x)
+            if h_seg_clash(ay1, ax1, mid_x, skip):
+                continue
+            if v_seg_clash(mid_x, ay1, ay2, skip):
+                continue
+            if h_seg_clash(ay2, mid_x, ax2, skip):
+                continue
+            return (
+                f"M {ax1} {ay1} L {mid_x} {ay1} L {mid_x} {ay2} L {ax2} {ay2}"
+            )
+        mid_x = round(gap_lo + get_v_offset(gap_lo, ay1, ay2), 2)
+        return f"M {ax1} {ay1} L {mid_x} {ay1} L {mid_x} {ay2} L {ax2} {ay2}"
 
     for src_code, dst_code in edges:
         if src_code not in positions or dst_code not in positions:
@@ -156,33 +217,30 @@ def build_diagram(lanes, tasks):
         dst = positions[dst_code]
         sx, sy = src["x"], src["y"]
         dx, dy = dst["x"], dst["y"]
+        sw, sh = src["w"], src["h"]
+        dw, dh = dst["w"], dst["h"]
         s_lane = src["lane_idx"]
         d_lane = dst["lane_idx"]
 
-        backward = (d_lane < s_lane) or (d_lane == s_lane and dx < sx + CARD_W)
-        # A backward edge whose destination still sits strictly to the right can
-        # be drawn as a direct elbow instead of looping around the outer margin.
-        backward_direct = d_lane < s_lane and dx > sx + CARD_W
+        backward = (d_lane < s_lane) or (d_lane == s_lane and dx + dw <= sx)
+        backward_direct = d_lane < s_lane and dx > sx + sw
 
         # Anchor points
         if backward_direct:
-            # leave right, enter left (same as a forward edge)
-            ax1 = sx + CARD_W
-            ay1 = sy + CARD_H / 2
+            ax1 = sx + sw
+            ay1 = sy + sh / 2
             ax2 = dx
-            ay2 = dy + CARD_H / 2
+            ay2 = dy + dh / 2
         elif backward:
-            # leave from bottom, enter from top
-            ax1 = sx + CARD_W / 2
-            ay1 = sy + CARD_H
-            ax2 = dx + CARD_W / 2
+            ax1 = sx + sw / 2
+            ay1 = sy + sh
+            ax2 = dx + dw / 2
             ay2 = dy
         else:
-            # normal: leave right, enter left
-            ax1 = sx + CARD_W
-            ay1 = sy + CARD_H / 2
+            ax1 = sx + sw
+            ay1 = sy + sh / 2
             ax2 = dx
-            ay2 = dy + CARD_H / 2
+            ay2 = dy + dh / 2
 
         path = ""
         marker = "url(#arrowhead)"
@@ -190,48 +248,31 @@ def build_diagram(lanes, tasks):
         stroke_dash = ""
 
         if not backward and s_lane == d_lane and ay1 == ay2:
-            # Same lane, same row, forward: horizontal straight
-            path = f"M {ax1} {ay1} L {ax2} {ay2}"
+            skip = frozenset({src_code, dst_code})
+            if not h_seg_clash(ay1, ax1, ax2, skip):
+                path = f"M {ax1} {ay1} L {ax2} {ay2}"
+            else:
+                path = route_forward_elbow(ax1, ay1, ax2, ay2, src_code, dst_code)
         elif not backward and s_lane == d_lane:
-            # Same lane but stacked rows: right stub -> vertical -> left edge
-            stub = 12
-            path = f"M {ax1} {ay1} L {ax1 + stub} {ay1} L {ax1 + stub} {ay2} L {ax2} {ay2}"
+            path = route_forward_elbow(ax1, ay1, ax2, ay2, src_code, dst_code)
         elif not backward and d_lane > s_lane:
-            # Downward: right stub -> vertical -> left stub
-            stub = 12
-            candidates = []
-            if dx > sx + CARD_W:
-                candidates.append(sx + CARD_W + (dx - (sx + CARD_W)) / 2)
-            candidates.append(ax1 + stub)
-            # Pick a vertical x that does not pass through cards in the lanes in between.
-            mid_x = None
-            for cand in candidates:
-                clash = any(
-                    s_lane < p["lane_idx"] < d_lane and p["x"] < cand < p["x"] + CARD_W
-                    for p in positions.values()
-                )
-                if not clash:
-                    mid_x = cand
-                    break
-            if mid_x is None:
-                mid_x = candidates[-1] + get_v_offset(candidates[-1], ay1, ay2)
-            path = f"M {ax1} {ay1} L {mid_x} {ay1} L {mid_x} {ay2} L {ax2} {ay2}"
+            path = route_forward_elbow(ax1, ay1, ax2, ay2, src_code, dst_code)
         elif backward_direct:
             # Destination is upper-right: a direct elbow (right -> up -> left) is
             # clean enough to render like any normal dependency.
             stub = 12
-            gap = dx - (sx + CARD_W)
+            gap = dx - (sx + sw)
             cands = []
             if gap >= 2 * stub:
-                cands.append(sx + CARD_W + gap / 2)
+                cands.append(sx + sw + gap / 2)
             if gap > stub:
-                cands.append(sx + CARD_W + stub)
+                cands.append(sx + sw + stub)
                 cands.append(dx - stub)
             if not cands:
-                cands.append((sx + CARD_W + dx) / 2)
+                cands.append((sx + sw + dx) / 2)
             mid_x = None
             for cand in cands:
-                if not v_seg_clash(cand, ay1, ay2):
+                if not v_seg_clash(cand, ay1, ay2, frozenset({src_code, dst_code})):
                     mid_x = cand
                     break
             if mid_x is None:
@@ -250,7 +291,7 @@ def build_diagram(lanes, tasks):
                 path = f"M {ax1} {ay1} L {rx} {ay1} L {rx} {ay2} L {ax2} {ay2}"
             else:
                 # same lane backward: go down under cards, back left, up
-                under_y = sy + CARD_H + 20 + get_v_offset(sx, sy, sy + CARD_H + 20)
+                under_y = sy + sh + 20 + get_v_offset(sx, sy, sy + sh + 20)
                 back_x = max(ax2 - 10, 0)
                 path = f"M {ax1} {ay1} L {ax1 + 10} {ay1} L {ax1 + 10} {under_y} L {back_x} {under_y} L {back_x} {ay2} L {ax2} {ay2}"
 
@@ -275,6 +316,8 @@ def build_diagram(lanes, tasks):
         lane_label_w=LANE_LABEL_W,
         card_w=CARD_W,
         card_h=CARD_H,
+        milestone_w=MILESTONE_W,
+        milestone_h=MILESTONE_H,
         gap_x=GAP_X,
         task_status=task_status,
         status_styles=STATUS_STYLES,

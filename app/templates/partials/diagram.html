@@ -16,6 +16,10 @@
     </span>
     {% endif %}
     {% endfor %}
+    <span class="legend-item legend-milestone" title="Zero-duration checkpoint">
+      <span class="legend-swatch legend-swatch-diamond">◆</span>
+      Milestone
+    </span>
   </div>
   <div class="diagram-canvas" style="width:{{ canvas_w }}px; height:{{ canvas_h }}px;">
     <!-- Lane bands -->
@@ -36,7 +40,23 @@
       {% for task in tasks_by_lane[lane.id] %}
         {% set pos = positions[task.code] %}
         {% set st = task_status.get(task.code, status_styles.get("not_started", {})) %}
-        <div class="task-card status-{{ task.status if task.status is defined else "not_started" }}" style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ card_w }}px; height:{{ card_h }}px;">
+        {% if task.is_milestone %}
+        <div class="milestone-node status-{{ task.status if task.status is defined else "not_started" }}"
+             style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ pos.w }}px; height:{{ pos.h }}px;">
+          <svg class="milestone-diamond" viewBox="0 0 52 52" width="100%" height="100%" aria-hidden="true">
+            <polygon points="26,2 50,26 26,50 2,26" fill="#fff" stroke="{{ st.border }}" stroke-width="2.5"/>
+          </svg>
+          <div class="milestone-caption">
+            <div class="milestone-name" title="{{ task.name }}">{{ task.name }}</div>
+            <div class="milestone-meta">
+              <span class="milestone-date" title="Target date">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</span>
+              <span class="milestone-status" style="color:{{ st.bar }}">{{ st.icon }}</span>
+            </div>
+            {% if task.responsible %}<div class="milestone-owner">{{ task.responsible }}</div>{% endif %}
+          </div>
+        </div>
+        {% else %}
+        <div class="task-card status-{{ task.status if task.status is defined else "not_started" }}" style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ pos.w }}px; height:{{ pos.h }}px;">
           <div class="card-header-bar" style="background:{{ st.bar }}" title="{{ task.name }} ({{ st.label }})">{{ task.name }}</div>
           <div class="card-body">
             <div class="card-row">
@@ -53,6 +73,7 @@
             </div>
           </div>
         </div>
+        {% endif %}
       {% endfor %}
     {% endfor %}
 
