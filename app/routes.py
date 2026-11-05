@@ -34,6 +34,13 @@ from .models import (
 from .workdays import count_workdays, next_workday
 from .task_tree import build_task_tree_rows
 from .project_overview import build_project_overview, fmt_overview_day
+from .services.scheduler import (
+    recalculate_project,
+    validate_task,
+    validate_predecessors_change as _validate_predecessors_change,
+    project_date_stats,
+    task_successors,
+)
 
 bp = Blueprint("main", __name__)
 
@@ -97,78 +104,6 @@ def _normalize_rich_text(value):
     if not stripped or not stripped.replace("<p>", "").replace("</p>", "").strip():
         return None
     return text
-
-
-# ---------------------------------------------------------------------------
-# Scheduling
-# ---------------------------------------------------------------------------
-
-def recalculate_project(project_id):
-    """Recompute start dates for every task in the project.
-
-    Dates follow the 5-day week: durations count working days and no task ever
-    starts on a Saturday or Sunday.
-
-    Rule: a task's end date is ``start_date + duration_days`` **working days**
-    (the first day a successor may start), and every task must start on or
-    after the latest end date of its predecessors. Whenever a task or its
-    predecessor set changes, this pushes affected dates forward along the
-    dependency chain so the whole project stays consistent; the grid is the
-    source of truth and the diagram simply reads the data back.
-
-    * Every start date is first rolled forward to the next working day, so a
-      date entered (or inherited) on a weekend lands on the Monday.
-    * Tasks with no predecessors keep their entered start date: they anchor
-      the schedule.
-    * Tasks are processed in dependency order (predecessors first), so a
-      change cascades through the full chain in a single pass.
-    * Dates only ever move forward: shortening a predecessor never pulls a
-      successor earlier.
-
-    Only the start dates of tasks inside this session are touched; the caller
-    commits. Returns the codes whose start date was moved.
-    """
-    by_code = {t.code: t for t in Task.query.filter_by(project_id=project_id)}
-    if not by_code:
-        return []
-
-    moved = set()
-
-    # Pass 1 - nobody works weekends: roll any Sat/Sun start onto the Monday.
-    for code, task in by_code.items():
-        workday = next_workday(task.start_date)
-        if workday != task.start_date:
-            task.start_date = workday
-            moved.add(code)
-
-    dependents = {code: [] for code in by_code}
-    indegree = {}
-    for code, task in by_code.items():
-        preds = [p for p in task.predecessor_codes() if p in by_code and p != code]
-        indegree[code] = len(preds)
-        for p in preds:
-            dependents[p].append(code)
-
-    queue = deque(sorted(c for c in by_code if indegree[c] == 0))
-    while queue:
-        code = queue.popleft()
-        task = by_code[code]
-        preds = [by_code[p] for p in task.predecessor_codes()
-                 if p in by_code and p != code]
-        if preds:
-            # Every predecessor's end date is already a working day, so the
-            # earliest legal start is too.
-            earliest = max(p.end_date for p in preds)
-            if task.start_date < earliest:
-                task.start_date = earliest
-                moved.add(code)
-        for d in dependents[code]:
-            indegree[d] -= 1
-            if indegree[d] == 0:
-                queue.append(d)
-    # Tasks left unprocessed belong to a predecessor cycle; they keep their
-    # entered dates (cycles cannot be saved, validate_task rejects them).
-    return sorted(moved)
 
 
 # Projects index
@@ -399,91 +334,6 @@ def _raid_context(project):
     }
 
 
-def validate_task(task, project_id, exclude_task_id=None, check_schedule=True):
-    errors = []
-    if not task.start_date:
-        errors.append("Start date is missing or not a valid date.")
-    is_milestone = getattr(task, "kind", TASK_KIND_TASK) == TASK_KIND_MILESTONE
-    if is_milestone:
-        if task.duration_days != 0:
-            errors.append("Milestones must have zero duration.")
-    elif task.duration_days is None or task.duration_days < 1:
-        errors.append("Duration must be an integer >= 1.")
-
-    if task.predecessors:
-        all_tasks = Task.query.filter_by(project_id=project_id).all()
-        if exclude_task_id:
-            all_tasks = [t for t in all_tasks if t.id != exclude_task_id]
-        codes = task.predecessor_codes()
-        valid_codes = {t.code for t in all_tasks}
-        unknown = [c for c in codes if c not in valid_codes]
-        if unknown:
-            errors.append(f"Unknown predecessor(s): {', '.join(unknown)}")
-
-        task_code = task.code
-        if task_code in codes:
-            errors.append("A task cannot be its own predecessor.")
-        else:
-            graph = {t.code: t.predecessor_codes() for t in all_tasks}
-            if task_code:
-                graph[task_code] = codes
-
-            def has_cycle(start, visited=None, rec_stack=None):
-                visited = visited or set()
-                rec_stack = rec_stack or set()
-                visited.add(start)
-                rec_stack.add(start)
-                for pred in graph.get(start, []):
-                    if pred not in visited:
-                        if has_cycle(pred, visited, rec_stack):
-                            return True
-                    elif pred in rec_stack:
-                        return True
-                rec_stack.remove(start)
-                return False
-
-            for code in list(graph.keys()):
-                if has_cycle(code):
-                    errors.append("Cycle detected in predecessor dependencies.")
-                    break
-
-            # Scheduling violation
-            if check_schedule and codes and task.start_date:
-                all_tasks_map = {t.code: t for t in all_tasks}
-                pred_end_dates = []
-                for c in codes:
-                    pred_task = all_tasks_map.get(c)
-                    if pred_task and pred_task.end_date:
-                        pred_end_dates.append(pred_task.end_date)
-                if pred_end_dates and task.start_date:
-                    max_end = max(pred_end_dates)
-                    if task.start_date < max_end:
-                        errors.append(f"Task starts before predecessor ends (needs start >= {fmt_date(max_end)}).")
-    return errors
-
-
-def _validate_predecessors_change(task, project_id, new_preds):
-    """Return ``(normalized_predecessors, errors)`` for a dependency-only edit."""
-    normalized = (new_preds or "").strip() or None
-    temp = Task(
-        project_id=project_id,
-        code=task.code,
-        kind=task.kind,
-        lane_id=task.lane_id,
-        name=task.name,
-        start_date=task.start_date,
-        duration_days=task.duration_days,
-        responsible=task.responsible,
-        predecessors=normalized,
-        started=task.started,
-        done=task.done,
-    )
-    errors = validate_task(
-        temp, project_id, exclude_task_id=task.id, check_schedule=False
-    )
-    return normalized, errors
-
-
 def _set_tasks_predecessors(project_id, task_ids, raw_predecessors):
     """Update predecessors on many tasks; recalculate once. Returns ``errors`` dict."""
     proj = Project.query.get_or_404(project_id)
@@ -528,23 +378,6 @@ def _task_table_swap_response(proj, tasks, **extra):
 
 # Routes for tasks
 # ---------------------------------------------------------------------------
-
-def project_date_stats(tasks):
-    """Project-level totals shown above the Lanes panel.
-
-    `total_effort` is the sum of all task durations, and `total_duration` the
-    span from the earliest start date to the latest end date - both counted in
-    **working days** (Saturday and Sunday excluded), so the numbers match the
-    dates on the grid rather than the wall calendar.
-    """
-    if not tasks:
-        return 0, 0, None, None
-    total_effort = sum(
-        t.duration_days for t in tasks if t.kind != TASK_KIND_MILESTONE
-    )
-    project_start = min(t.start_date for t in tasks)
-    project_end = max(t.end_date for t in tasks)
-    return total_effort, count_workdays(project_start, project_end), project_start, project_end
 
 
 @bp.route("/projects/<int:id>/requirements", methods=["POST"])
