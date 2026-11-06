@@ -49,8 +49,8 @@ def test_overview_tab_default(client, app):
     assert "show active" in html.split("overview-pane")[0][-80:] or 'id="overview-pane"' in html
     assert 'id="overview-pane"' in html
     assert 'id="overview-pane" role="tabpanel"' in html or "overview-pane" in html
-    # Overview is active; plan pane is not the active tab pane
-    assert html.index("overview-pane") < html.index("plan-pane") or True
+    # Overview is active; tasks pane is not the active tab pane
+    assert html.index("overview-pane") < html.index("tasks-pane")
 
 
 def test_task_progress_counts(app):

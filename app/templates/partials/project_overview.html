@@ -73,10 +73,16 @@
         </div>
         {% endif %}
         <button type="button" class="btn btn-sm btn-outline-primary overview-jump-btn"
-                onclick="document.querySelector('#plan-tab').click();"
-                title="Switch to Tasks &amp; PERT Diagram">
+                onclick="document.querySelector('#tasks-tab').click();"
+                title="Switch to Tasks">
           <svg class="overview-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-          Tasks &amp; Diagram
+          Tasks
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-primary overview-jump-btn"
+                onclick="document.querySelector('#diagram-tab').click();"
+                title="Switch to Diagram">
+          <svg class="overview-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>
+          Diagram
         </button>
         <button type="button" class="btn btn-sm btn-outline-secondary overview-jump-btn"
                 onclick="document.querySelector('#raid-tab').click();"
@@ -382,8 +388,8 @@
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="mb-2 text-muted opacity-50"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
               <p class="mb-1 fw-medium text-dark">No milestones added yet</p>
               <p class="small text-muted mb-3">Add milestones in the plan diagram to highlight delivery gates for stakeholders.</p>
-              <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.querySelector('#plan-tab').click();">
-                Add Milestones in Plan
+              <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.querySelector('#tasks-tab').click();">
+                Add Milestones in Tasks
               </button>
             </div>
             {% endif %}

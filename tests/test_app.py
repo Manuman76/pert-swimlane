@@ -82,9 +82,12 @@ def test_project_settings_update_and_tabs(client, app):
     page = client.get(f"/projects/{pid}")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
-    assert "Tasks &amp; diagram" in html
+    assert "Tasks" in html
+    assert "Diagram" in html
     assert "Overview" in html
-    assert "Project settings" in html
+    assert "Requirements" in html
+    assert "RAID" in html
+    assert "Settings" in html
     assert "Planning" in html
 
     response = client.post(f"/projects/{pid}/settings", data={

@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Projects Dashboard - PERT Swimlane{% endblock %}
+{% block navbar %}{% endblock %}
 
 {% block content %}
-<div class="container-fluid px-3 px-lg-4 py-2">
+<div class="container-fluid px-3 px-lg-4 py-3">
 
   <!-- 1. Header & Actions -->
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 portfolio-header mb-4">
@@ -147,10 +148,13 @@
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end shadow-sm" aria-labelledby="projActions-{{ p.id }}">
-                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}">Open project</a></li>
-                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#plan">Tasks &amp; PERT diagram</a></li>
-                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#overview">Overview dashboard</a></li>
-                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#raid">RAID log</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#overview">Overview</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#tasks">Tasks</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#diagram">Diagram</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#requirements">Requirements</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#raid">RAID</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('main.project', id=p.id) }}#settings">Settings</a></li>
+                  <li><hr class="dropdown-divider"></li>
                   <li><a class="dropdown-item" href="{{ url_for('main.export_jira_csv', id=p.id) }}">Export to Jira (CSV)</a></li>
                   <li><hr class="dropdown-divider"></li>
                   <li>
@@ -284,8 +288,8 @@
               Updated {{ p.updated_at.strftime("%d %b %Y") if p.updated_at else "Recently" }}
             </span>
             <div class="d-flex align-items-center gap-1">
-              <a href="{{ url_for('main.project', id=p.id) }}#plan" class="btn btn-sm btn-outline-secondary" title="Tasks &amp; PERT diagram">
-                Plan
+              <a href="{{ url_for('main.project', id=p.id) }}#tasks" class="btn btn-sm btn-outline-secondary" title="View tasks">
+                Tasks
               </a>
               <a href="{{ url_for('main.project', id=p.id) }}" class="btn btn-sm btn-primary fw-semibold px-3">
                 Open &rarr;

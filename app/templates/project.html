@@ -22,14 +22,14 @@
             aria-controls="overview-pane" aria-selected="true">Overview</button>
   </li>
   <li class="nav-item" role="presentation">
-    <button class="nav-link" id="plan-tab" data-bs-toggle="tab"
-            data-bs-target="#plan-pane" type="button" role="tab"
-            aria-controls="plan-pane" aria-selected="false">Tasks &amp; diagram</button>
+    <button class="nav-link" id="tasks-tab" data-bs-toggle="tab"
+            data-bs-target="#tasks-pane" type="button" role="tab"
+            aria-controls="tasks-pane" aria-selected="false">Tasks</button>
   </li>
   <li class="nav-item" role="presentation">
-    <button class="nav-link" id="settings-tab" data-bs-toggle="tab"
-            data-bs-target="#settings-pane" type="button" role="tab"
-            aria-controls="settings-pane" aria-selected="false">Project settings</button>
+    <button class="nav-link" id="diagram-tab" data-bs-toggle="tab"
+            data-bs-target="#diagram-pane" type="button" role="tab"
+            aria-controls="diagram-pane" aria-selected="false">Diagram</button>
   </li>
   <li class="nav-item" role="presentation">
     <button class="nav-link" id="requirements-tab" data-bs-toggle="tab"
@@ -40,6 +40,11 @@
     <button class="nav-link" id="raid-tab" data-bs-toggle="tab"
             data-bs-target="#raid-pane" type="button" role="tab"
             aria-controls="raid-pane" aria-selected="false">RAID</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="settings-tab" data-bs-toggle="tab"
+            data-bs-target="#settings-pane" type="button" role="tab"
+            aria-controls="settings-pane" aria-selected="false">Settings</button>
   </li>
 </ul>
 
@@ -52,13 +57,10 @@
     </div>
   </div>
 </div>
-<div class="tab-pane fade" id="plan-pane" role="tabpanel"
-     aria-labelledby="plan-tab" tabindex="0">
+<div class="tab-pane fade" id="tasks-pane" role="tabpanel"
+     aria-labelledby="tasks-tab" tabindex="0">
 <div class="plan-workspace">
   <div class="plan-workspace-main">
-<div class="row g-4">
-
-  <div class="col-12">
     <div class="card shadow-sm">
       <div class="card-header panel-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
         <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -143,41 +145,99 @@
       </div>
     </div>
   </div>
-
-  <div class="col-12">
-    <div class="card shadow-sm">
-      <div class="card-header panel-header d-flex justify-content-between align-items-center">
-        <strong>Diagram</strong>
-        <div class="d-flex gap-2">
-          <button id="btn-refresh-diagram" type="button"
-                  class="btn btn-sm btn-outline-secondary"
-                  hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
-                  hx-target="#diagram-container"
-                  hx-swap="innerHTML"
-                  title="Reload the swimlane diagram">Refresh</button>
-          <button id="btn-export-png" type="button" disabled
-                  class="btn btn-sm btn-outline-secondary"
-                  data-filename="{{ project.name }}" title="Download the diagram as a PNG image">Export Image</button>
-        </div>
-      </div>
-      <div class="card-body p-0">
-        <div id="diagram-container"
-             hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
-             hx-trigger="load, every 30s, refreshDiagram from:body"
-             hx-swap="innerHTML">
-          <div class="p-4 text-muted">Loading diagram…</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-  </div>
   <aside id="task-detail-panel" class="task-detail-panel" aria-label="Task details"
          data-empty-url="{{ url_for('main.task_detail_empty', id=project.id) }}"
          data-detail-url="{{ url_for('main.task_detail', task_id=0) }}">
     {% include "partials/task_detail_empty.html" %}
   </aside>
 </div>
+</div>
+
+<div class="tab-pane fade" id="diagram-pane" role="tabpanel"
+     aria-labelledby="diagram-tab" tabindex="0">
+  <div class="card shadow-sm">
+    <div class="card-header panel-header d-flex justify-content-between align-items-center">
+      <strong>Diagram</strong>
+      <div class="d-flex gap-2">
+        <button id="btn-refresh-diagram" type="button"
+                class="btn btn-sm btn-outline-secondary"
+                hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
+                hx-target="#diagram-container"
+                hx-swap="innerHTML"
+                title="Reload the swimlane diagram">Refresh</button>
+        <button id="btn-export-png" type="button" disabled
+                class="btn btn-sm btn-outline-secondary"
+                data-filename="{{ project.name }}" title="Download the diagram as a PNG image">Export Image</button>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      <div id="diagram-container"
+           hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
+           hx-trigger="load, every 30s, refreshDiagram from:body"
+           hx-swap="innerHTML">
+        <div class="p-4 text-muted">Loading diagram…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tab-pane fade" id="requirements-pane" role="tabpanel"
+     aria-labelledby="requirements-tab" tabindex="0">
+  <div class="card shadow-sm">
+    <div class="card-header panel-header"><strong>Business requirements</strong></div>
+    <div class="card-body">
+      <p class="small text-muted mb-2 requirements-trace-intro">
+        Traceability matrix — link tasks from the task grid (BR column). Coverage updates from task status.
+      </p>
+      <div class="requirements-coverage-legend small text-muted mb-3">
+        <span class="me-3"><span aria-hidden="true">🟥</span> Not covered</span>
+        <span class="me-3"><span aria-hidden="true">🟧</span> Planned</span>
+        <span class="me-3"><span aria-hidden="true">🟦</span> In progress</span>
+        <span><span aria-hidden="true">🟩</span> Implemented</span>
+      </div>
+      <form class="requirement-add-form" method="POST"
+            action="{{ url_for('main.manage_requirements', id=project.id) }}"
+            hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
+            data-requirement-add="true"
+            hx-target="#requirements-list" hx-swap="innerHTML">
+        <input type="hidden" name="action" value="add">
+        <input type="hidden" name="partial" value="requirements">
+        <input id="new-requirement-title" class="form-control form-control-sm" name="title"
+               placeholder="New requirement title" required>
+        <textarea class="form-control form-control-sm" name="description" rows="1"
+                  placeholder="Description"></textarea>
+        <select class="form-select form-select-sm" name="moscow" aria-label="MoSCoW category">
+          {% for value, label in moscow_choices %}
+          <option value="{{ value }}"{% if value == 'must' %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-sm btn-outline-success" type="submit">Add requirement</button>
+      </form>
+      <div class="requirements-header">
+        <span>Requirement</span><span>Title</span><span>Description</span><span>Priority</span>
+        <span>Tasks</span><span>Status</span><span>Coverage</span><span></span><span></span>
+      </div>
+      <div id="requirements-list"
+           hx-get="{{ url_for('main.requirements_list_partial', id=project.id) }}"
+           hx-trigger="refreshRequirements from:body"
+           hx-swap="innerHTML">
+        {% include "partials/requirements.html" %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tab-pane fade" id="raid-pane" role="tabpanel"
+     aria-labelledby="raid-tab" tabindex="0">
+  <div class="card shadow-sm">
+    <div class="card-header panel-header">
+      <strong>RAID log</strong>
+      <span class="text-muted small ms-2">Risks, Assumptions, Issues, Decisions</span>
+    </div>
+    <div class="card-body">
+      {% include "partials/raid_pane.html" %}
+    </div>
+  </div>
 </div>
 
 <div class="tab-pane fade" id="settings-pane" role="tabpanel"
@@ -322,65 +382,6 @@
     </div>
   </div>
 </div>
-
-<div class="tab-pane fade" id="requirements-pane" role="tabpanel"
-     aria-labelledby="requirements-tab" tabindex="0">
-  <div class="card shadow-sm">
-    <div class="card-header panel-header"><strong>Business requirements</strong></div>
-    <div class="card-body">
-      <p class="small text-muted mb-2 requirements-trace-intro">
-        Traceability matrix — link tasks from the task grid (BR column). Coverage updates from task status.
-      </p>
-      <div class="requirements-coverage-legend small text-muted mb-3">
-        <span class="me-3"><span aria-hidden="true">🟥</span> Not covered</span>
-        <span class="me-3"><span aria-hidden="true">🟧</span> Planned</span>
-        <span class="me-3"><span aria-hidden="true">🟦</span> In progress</span>
-        <span><span aria-hidden="true">🟩</span> Implemented</span>
-      </div>
-      <form class="requirement-add-form" method="POST"
-            action="{{ url_for('main.manage_requirements', id=project.id) }}"
-            hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
-            data-requirement-add="true"
-            hx-target="#requirements-list" hx-swap="innerHTML">
-        <input type="hidden" name="action" value="add">
-        <input type="hidden" name="partial" value="requirements">
-        <input id="new-requirement-title" class="form-control form-control-sm" name="title"
-               placeholder="New requirement title" required>
-        <textarea class="form-control form-control-sm" name="description" rows="1"
-                  placeholder="Description"></textarea>
-        <select class="form-select form-select-sm" name="moscow" aria-label="MoSCoW category">
-          {% for value, label in moscow_choices %}
-          <option value="{{ value }}"{% if value == 'must' %} selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn btn-sm btn-outline-success" type="submit">Add requirement</button>
-      </form>
-      <div class="requirements-header">
-        <span>Requirement</span><span>Title</span><span>Description</span><span>Priority</span>
-        <span>Tasks</span><span>Status</span><span>Coverage</span><span></span><span></span>
-      </div>
-      <div id="requirements-list"
-           hx-get="{{ url_for('main.requirements_list_partial', id=project.id) }}"
-           hx-trigger="refreshRequirements from:body"
-           hx-swap="innerHTML">
-        {% include "partials/requirements.html" %}
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="tab-pane fade" id="raid-pane" role="tabpanel"
-     aria-labelledby="raid-tab" tabindex="0">
-  <div class="card shadow-sm">
-    <div class="card-header panel-header">
-      <strong>RAID log</strong>
-      <span class="text-muted small ms-2">Risks, Assumptions, Issues, Decisions</span>
-    </div>
-    <div class="card-body">
-      {% include "partials/raid_pane.html" %}
-    </div>
-  </div>
-</div>
 </div>
 </div>
 
@@ -391,10 +392,12 @@
   const tabButtons = document.querySelectorAll('#project-tabs [data-bs-toggle="tab"]');
   const tabForHash = {
     '#overview': '#overview-tab',
-    '#settings': '#settings-tab',
+    '#tasks': '#tasks-tab',
+    '#diagram': '#diagram-tab',
     '#requirements': '#requirements-tab',
     '#raid': '#raid-tab',
-    '#plan': '#plan-tab'
+    '#settings': '#settings-tab',
+    '#plan': '#tasks-tab'
   };
 
   function activateFromHash() {
@@ -408,11 +411,16 @@
     button.addEventListener('shown.bs.tab', function (event) {
       const hash = event.target.id === 'overview-tab'
         ? '#overview'
+        : event.target.id === 'tasks-tab'
+        ? '#tasks'
+        : event.target.id === 'diagram-tab'
+        ? '#diagram'
+        : event.target.id === 'requirements-tab'
+        ? '#requirements'
+        : event.target.id === 'raid-tab'
+        ? '#raid'
         : event.target.id === 'settings-tab'
         ? '#settings'
-        : event.target.id === 'requirements-tab' ? '#requirements'
-        : event.target.id === 'raid-tab' ? '#raid'
-        : event.target.id === 'plan-tab' ? '#plan'
         : '#overview';
       history.replaceState(null, '', window.location.pathname + window.location.search + hash);
     });
@@ -981,10 +989,12 @@ async function saveBlobDesktopOrBrowser(blob, filename) {
   }
   refreshButton();
   // The diagram is swapped in via HTMX (initial load + refreshes), so
-  // re-enable the button whenever a swap lands.
+  // re-enable the button whenever a swap lands or the diagram tab is opened.
   document.body.addEventListener('htmx:afterSwap', function () {
     refreshButton();
   });
+  const diagTab = document.getElementById('diagram-tab');
+  if (diagTab) diagTab.addEventListener('shown.bs.tab', refreshButton);
 
   btn.addEventListener('click', async function () {
     const canvas = container.querySelector('.diagram-canvas');
