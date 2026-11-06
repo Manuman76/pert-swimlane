@@ -185,3 +185,54 @@ def test_overview_shows_baseline_and_variance(client, app):
     assert "+2d" in html
     assert "SIT Ready" in html
 
+
+def test_overdue_project_health_status(app):
+    """When a project's scheduled finish date has passed with incomplete tasks,
+    it should not appear 'On Track'."""
+    from datetime import timedelta
+
+    today = date.today()
+    past_date = today - timedelta(days=10)
+
+    # 1. Project past finish date with incomplete tasks -> Needs Attention (critical)
+    t_overdue = Task(
+        code="001",
+        name="Past Work",
+        start_date=past_date,
+        duration_days=2,
+        started=False,
+        done=False,
+    )
+    overview_crit = build_project_overview([t_overdue], [], [])
+    assert overview_crit.health_status == "critical"
+    assert overview_crit.health_label == "Needs Attention"
+    assert "finish date passed" in overview_crit.health_summary
+
+    # 2. When all tasks are completed, even if in past -> Complete
+    t_done = Task(
+        code="001",
+        name="Past Work Done",
+        start_date=past_date,
+        duration_days=2,
+        started=True,
+        done=True,
+    )
+    overview_done = build_project_overview([t_done], [], [])
+    assert overview_done.health_status == "completed"
+    assert overview_done.health_label == "Complete"
+
+    # 3. Future task not started -> On Track
+    future_date = today + timedelta(days=10)
+    t_future = Task(
+        code="001",
+        name="Future Work",
+        start_date=future_date,
+        duration_days=2,
+        started=False,
+        done=False,
+    )
+    overview_future = build_project_overview([t_future], [], [])
+    assert overview_future.health_status == "on_track"
+    assert overview_future.health_label == "On Track"
+
+

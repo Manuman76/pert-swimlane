@@ -203,5 +203,13 @@ def diagram_partial(id):
     proj = Project.query.get_or_404(id)
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
+    collapsed_raw = request.args.get("collapsed", "")
+    collapsed_lanes = set()
+    if collapsed_raw:
+        for val in collapsed_raw.split(","):
+            try:
+                collapsed_lanes.add(int(val.strip()))
+            except (ValueError, TypeError):
+                pass
     from ..diagram import build_diagram
-    return build_diagram(lanes, tasks)
+    return build_diagram(lanes, tasks, members=proj.members, collapsed_lanes=collapsed_lanes)

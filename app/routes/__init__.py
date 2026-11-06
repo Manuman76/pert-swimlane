@@ -69,6 +69,7 @@ from ..services.scheduler import (
     task_successors,
     set_project_baseline,
     clear_project_baseline,
+    compute_critical_path,
 )
 
 # Internal helper aliases for test compatibility

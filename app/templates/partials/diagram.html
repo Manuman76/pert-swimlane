@@ -4,8 +4,74 @@
      whole diagram with an UndefinedError. #}
   {% set lane_tops = lane_tops if lane_tops is defined else {} %}
   {% set lane_heights = lane_heights if lane_heights is defined else {} %}
+  {% set lane_collapsed = lane_collapsed if lane_collapsed is defined else {} %}
+  {% set lane_task_counts = lane_task_counts if lane_task_counts is defined else {} %}
   {% set task_status = task_status if task_status is defined else {} %}
   {% set status_styles = status_styles if status_styles is defined else {} %}
+  {% set members = members if members is defined else [] %}
+
+  <!-- 1. Diagram View & Filtering Toolbar -->
+  <div class="diagram-toolbar d-flex align-items-center justify-content-between flex-wrap gap-2 px-3 py-2 border-bottom bg-white">
+    <!-- Left: Filters -->
+    <div class="d-flex align-items-center flex-wrap gap-2">
+      <span class="fw-semibold small text-secondary me-1">View:</span>
+
+      <!-- Lane filter -->
+      <select id="diagram-filter-lane" class="form-select form-select-sm" style="width: auto;" aria-label="Filter by lane">
+        <option value="all">All lanes</option>
+        {% for lane in lanes %}
+        <option value="{{ lane.id }}">{{ lane.name }}</option>
+        {% endfor %}
+      </select>
+
+      <!-- Status filter -->
+      <select id="diagram-filter-status" class="form-select form-select-sm" style="width: auto;" aria-label="Filter by status">
+        <option value="all">All statuses</option>
+        <option value="not_started">Not started</option>
+        <option value="started">Started</option>
+        <option value="done">Done</option>
+      </select>
+
+      <!-- Responsible filter -->
+      <select id="diagram-filter-responsible" class="form-select form-select-sm" style="width: auto;" aria-label="Filter by responsible">
+        <option value="all">All assignees</option>
+        {% for m in members %}
+        <option value="{{ m.name }}">{{ m.name }}</option>
+        {% endfor %}
+      </select>
+
+      <div class="vr my-1 mx-1 text-secondary opacity-25 d-none d-md-block"></div>
+
+      <!-- Hide completed checkbox -->
+      <div class="form-check form-check-inline mb-0 small">
+        <input class="form-check-input" type="checkbox" id="diagram-filter-hide-completed">
+        <label class="form-check-label text-dark" for="diagram-filter-hide-completed">Hide completed</label>
+      </div>
+
+      <!-- Show requirements checkbox -->
+      <div class="form-check form-check-inline mb-0 small">
+        <input class="form-check-input" type="checkbox" id="diagram-filter-show-requirements">
+        <label class="form-check-label text-dark" for="diagram-filter-show-requirements">Show requirements</label>
+      </div>
+    </div>
+
+    <!-- Right: Zoom & Navigation Controls -->
+    <div class="d-flex align-items-center gap-1 ms-auto">
+      <div class="btn-group btn-group-sm">
+        <button type="button" class="btn btn-outline-secondary" id="btn-zoom-out" title="Zoom out [-]">&minus;</button>
+        <button type="button" class="btn btn-outline-secondary font-monospace fw-semibold px-2" id="btn-zoom-reset" title="Reset to 100%">100%</button>
+        <button type="button" class="btn btn-outline-secondary" id="btn-zoom-in" title="Zoom in [+]">&plus;</button>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-zoom-fit" title="Fit entire diagram to screen width and height">Fit</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-zoom-center" title="Center diagram in viewport">Center</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-toggle-minimap" title="Toggle mini-map navigator">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="3" y1="9" x2="21" y2="9"></line></svg>
+        Map
+      </button>
+    </div>
+  </div>
+
+  <!-- 2. Status & Diagram Legend -->
   <div class="diagram-legend">
     <span class="legend-title">Status:</span>
     {% for key in ("not_started", "started", "done") %}
@@ -27,91 +93,469 @@
     </span>
     {% endif %}
   </div>
-  <div class="diagram-canvas" style="width:{{ canvas_w }}px; height:{{ canvas_h }}px;">
-    <!-- Lane bands -->
-    {% for lane in lanes %}
-    {% set band_top = lane_tops.get(lane.id, loop.index0 * lane_h) %}
-    {% set band_h = lane_heights.get(lane.id, lane_h) %}
-    <div class="lane-band {% if loop.index is odd %}lane-odd{% else %}lane-even{% endif %}"
-         style="left:0; top:{{ band_top }}px;
-                width:{{ canvas_w }}px; height:{{ band_h }}px;">
-      <div class="lane-label" style="width:{{ lane_label_w }}px; height:{{ band_h }}px;">
-        <span class="lane-name">{{ lane.name }}</span>
-      </div>
-    </div>
-    {% endfor %}
 
-    <!-- Task cards (positioned absolutely within canvas) -->
-    {% for lane in lanes %}
-      {% for task in tasks_by_lane[lane.id] %}
-        {% set pos = positions[task.code] %}
-        {% set st = task_status.get(task.code, status_styles.get("not_started", {})) %}
-        {% if task.is_milestone %}
-        <div class="milestone-node status-{{ task.status if task.status is defined else "not_started" }}"
-             style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ pos.w }}px; height:{{ pos.h }}px;">
-          <svg class="milestone-diamond" viewBox="0 0 52 52" width="100%" height="100%" aria-hidden="true">
-            <polygon points="26,2 50,26 26,50 2,26" fill="#fff" stroke="{{ st.border }}" stroke-width="2.5"/>
-          </svg>
-          <div class="milestone-caption">
-            <div class="milestone-name" title="{{ task.name }}">{{ task.name }}</div>
-            <div class="milestone-meta">
-              <span class="milestone-date" title="{% if task.baseline_start_date %}Current: {{ task.start_date.strftime('%d %b %Y').lstrip('0') }} | Baseline: {{ task.baseline_start_date.strftime('%d %b %Y').lstrip('0') }}{% else %}Target date{% endif %}">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</span>
-              {% if task.baseline_start_date and task.variance_days != 0 %}
-              <span class="milestone-variance-tag {% if task.variance_days > 0 %}tag-delay{% else %}tag-ahead{% endif %}"
-                    title="Baseline: {{ task.baseline_start_date.strftime('%d %b %Y').lstrip('0') }} ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d variance)">
-                {% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d
-              </span>
-              {% endif %}
-              <span class="milestone-status" style="color:{{ st.bar }}">{{ st.icon }}</span>
+  <!-- 3. Interactive Pan/Zoom Viewport -->
+  <div class="diagram-viewport" id="diagram-viewport" data-project-id="{{ project_id }}">
+    <div class="diagram-stage" id="diagram-stage">
+      <div class="diagram-canvas" id="diagram-canvas" style="width:{{ canvas_w }}px; height:{{ canvas_h }}px;">
+        <!-- Lane bands -->
+        {% for lane in lanes %}
+        {% set band_top = lane_tops.get(lane.id, loop.index0 * lane_h) %}
+        {% set band_h = lane_heights.get(lane.id, lane_h) %}
+        {% set is_collapsed = lane_collapsed.get(lane.id, false) if lane_collapsed else false %}
+        {% set task_count = lane_task_counts.get(lane.id, 0) if lane_task_counts else 0 %}
+        <div class="lane-band {% if loop.index is odd %}lane-odd{% else %}lane-even{% endif %}{% if is_collapsed %} lane-collapsed{% endif %}"
+             style="left:0; top:{{ band_top }}px; width:{{ canvas_w }}px; height:{{ band_h }}px;"
+             data-lane-id="{{ lane.id }}">
+          <div class="lane-label" style="width:{{ lane_label_w }}px; height:{{ band_h }}px;">
+            <button type="button" class="lane-collapse-toggle" data-lane-id="{{ lane.id }}"
+                    onclick="toggleDiagramLaneCollapse({{ lane.id }});"
+                    title="{% if is_collapsed %}Expand {{ lane.name }}{% else %}Collapse {{ lane.name }}{% endif %}">
+              <span class="lane-collapse-icon">{% if is_collapsed %}&#9654;{% else %}&#9660;{% endif %}</span>
+              <span class="lane-name">{{ lane.name }}</span>
+            </button>
+            <div class="lane-task-count text-muted small">
+              {{ task_count }} task{% if task_count != 1 %}s{% endif %}
             </div>
-            {% if task.responsible %}<div class="milestone-owner">{{ task.responsible }}</div>{% endif %}
           </div>
         </div>
-        {% else %}
-        <div class="task-card status-{{ task.status if task.status is defined else "not_started" }}" style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ pos.w }}px; height:{{ pos.h }}px;">
-          <div class="card-header-bar" style="background:{{ st.bar }}" title="{{ task.name }} ({{ st.label }})">{{ task.name }}</div>
-          <div class="card-body">
-            <div class="card-row">
-              <div class="card-cell">{{ task.code }}</div>
-              <div class="card-cell" title="working days (Saturday and Sunday skipped)">{{ task.duration_days }} day{% if task.duration_days != 1 %}s{% endif %}</div>
-            </div>
-            <div class="card-row">
-              <div class="card-cell">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</div>
-              <div class="card-cell">
-                {{ task.end_date.strftime("%d %b %Y").lstrip("0") }}
-                {% if task.baseline_end_date and task.variance_days != 0 %}
-                <span class="card-variance-tag {% if task.variance_days > 0 %}tag-delay{% else %}tag-ahead{% endif %}"
-                      title="Baseline end: {{ task.baseline_end_date.strftime('%d %b %Y').lstrip('0') }} ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d variance)">
-                  ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d)
-                </span>
-                {% endif %}
+        {% endfor %}
+
+        <!-- Task cards & Milestones (positioned absolutely within canvas) -->
+        {% for lane in lanes %}
+          {% for task in tasks_by_lane[lane.id] %}
+            {% set pos = positions.get(task.code) %}
+            {% if pos %}
+            {% set st = task_status.get(task.code, status_styles.get("not_started", {})) %}
+            {% if task.is_milestone %}
+            <div class="milestone-node status-{{ task.status if task.status is defined else 'not_started' }}" style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ pos.w }}px; height:{{ pos.h }}px;">
+              <svg class="milestone-diamond" viewBox="0 0 52 52" width="100%" height="100%" aria-hidden="true">
+                <polygon points="26,2 50,26 26,50 2,26" fill="#fff" stroke="{{ st.border }}" stroke-width="2.5"/>
+              </svg>
+              <div class="milestone-caption">
+                <div class="milestone-name" title="{{ task.name }}">{{ task.name }}</div>
+                <div class="milestone-meta">
+                  <span class="milestone-date" title="{% if task.baseline_start_date %}Current: {{ task.start_date.strftime('%d %b %Y').lstrip('0') }} | Baseline: {{ task.baseline_start_date.strftime('%d %b %Y').lstrip('0') }}{% else %}Target date{% endif %}">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</span>
+                  {% if task.baseline_start_date and task.variance_days != 0 %}
+                  <span class="milestone-variance-tag {% if task.variance_days > 0 %}tag-delay{% else %}tag-ahead{% endif %}"
+                        title="Baseline: {{ task.baseline_start_date.strftime('%d %b %Y').lstrip('0') }} ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d variance)">
+                    {% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d
+                  </span>
+                  {% endif %}
+                  <span class="milestone-status" style="color:{{ st.bar }}">{{ st.icon }}</span>
+                </div>
+                {% if task.responsible %}<div class="milestone-owner">{{ task.responsible }}</div>{% endif %}
               </div>
             </div>
-            <div class="card-footer">
-              <span class="card-status" style="color:{{ st.bar }}">{{ st.icon }} {{ st.label }}</span>
-              {% if task.responsible %}<span class="card-responsible">{{ task.responsible }}</span>{% endif %}
+            {% else %}
+            <div class="task-card status-{{ task.status if task.status is defined else 'not_started' }}" style="left:{{ pos.x }}px; top:{{ pos.y }}px; width:{{ pos.w }}px; height:{{ pos.h }}px;">
+              <div class="card-header-bar" style="background:{{ st.bar }}" title="{{ task.name }} ({{ st.label }})">{{ task.name }}</div>
+              <div class="card-body">
+                <div class="card-row">
+                  <div class="card-cell">{{ task.code }}</div>
+                  <div class="card-cell" title="working days (Saturday and Sunday skipped)">{{ task.duration_days }} day{% if task.duration_days != 1 %}s{% endif %}</div>
+                </div>
+                <div class="card-row">
+                  <div class="card-cell">{{ task.start_date.strftime("%d %b %Y").lstrip("0") }}</div>
+                  <div class="card-cell">
+                    {{ task.end_date.strftime("%d %b %Y").lstrip("0") }}
+                    {% if task.baseline_end_date and task.variance_days != 0 %}
+                    <span class="card-variance-tag {% if task.variance_days > 0 %}tag-delay{% else %}tag-ahead{% endif %}"
+                          title="Baseline end: {{ task.baseline_end_date.strftime('%d %b %Y').lstrip('0') }} ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d variance)">
+                      ({% if task.variance_days > 0 %}+{% endif %}{{ task.variance_days }}d)
+                    </span>
+                    {% endif %}
+                  </div>
+                </div>
+                {% if task.requirements is defined and task.requirements %}
+                <div class="card-requirements-row">
+                  {% for req in task.requirements %}
+                  <span class="badge bg-secondary-subtle text-secondary-emphasis font-monospace px-1 py-0 small" style="font-size: 9px;" title="{{ req.code }}: {{ req.title }}">{{ req.code }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                <div class="card-footer">
+                  <span class="card-status" style="color:{{ st.bar }}">{{ st.icon }} {{ st.label }}</span>
+                  {% if task.responsible %}<span class="card-responsible">{{ task.responsible }}</span>{% endif %}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        {% endif %}
-      {% endfor %}
-    {% endfor %}
+            {% endif %}
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
 
-    <!-- SVG arrow overlay -->
-    <svg class="diagram-svg" width="{{ canvas_w }}" height="{{ canvas_h }}" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-          <polygon points="0 0, 10 3.5, 0 7" fill="#444" />
-        </marker>
-        <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-          <polygon points="0 0, 10 3.5, 0 7" fill="#c0392b" />
-        </marker>
-      </defs>
-      {% for arrow in arrows %}
-      <path d="{{ arrow.path }}" fill="none" stroke="{{ arrow.stroke }}" stroke-width="1.5"
-            {% if arrow.stroke_dash %}stroke-dasharray="{{ arrow.stroke_dash }}"{% endif %}
-            marker-end="{{ arrow.marker }}" />
-      {% endfor %}
-    </svg>
+        <!-- SVG arrow overlay -->
+        <svg class="diagram-svg" width="{{ canvas_w }}" height="{{ canvas_h }}" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#444" />
+            </marker>
+            <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#c0392b" />
+            </marker>
+          </defs>
+          {% for arrow in arrows %}
+          <path d="{{ arrow.path }}" fill="none" stroke="{{ arrow.stroke }}" stroke-width="1.5"
+                {% if arrow.stroke_dash %}stroke-dasharray="{{ arrow.stroke_dash }}"{% endif %}
+                data-src="{{ arrow.src }}" data-dst="{{ arrow.dst }}"
+                data-src-lane="{{ arrow.src_lane_id }}" data-dst-lane="{{ arrow.dst_lane_id }}"
+                class="diagram-arrow"
+                marker-end="{{ arrow.marker }}" />
+          {% endfor %}
+        </svg>
+      </div>
+    </div>
+
+    <!-- 4. Mini-Map Navigator Floating Box -->
+    <div class="diagram-minimap" id="diagram-minimap">
+      <div class="minimap-header d-flex justify-content-between align-items-center px-2 py-1">
+        <span class="small fw-bold text-secondary" style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;">Navigator</span>
+        <button type="button" class="btn-close py-0 px-1" id="btn-close-minimap" style="font-size: 8px;" aria-label="Close"></button>
+      </div>
+      <div class="minimap-body" id="minimap-body">
+        <canvas id="minimap-canvas" width="180" height="110"></canvas>
+        <div id="minimap-viewport-box" class="minimap-viewport-box"></div>
+      </div>
+    </div>
   </div>
 </div>
+
+<script>
+(function () {
+  // Preserve state across HTMX reloads
+  window.pertDiagramState = window.pertDiagramState || {
+    zoom: 1.0,
+    panX: 0,
+    panY: 0,
+    collapsedLanes: new Set(),
+    filters: {
+      lane: 'all',
+      status: 'all',
+      responsible: 'all',
+      hideCompleted: false,
+      showRequirements: false,
+    },
+    showMinimap: true,
+  };
+
+  const state = window.pertDiagramState;
+  const viewport = document.getElementById('diagram-viewport');
+  const stage = document.getElementById('diagram-stage');
+  const canvas = document.getElementById('diagram-canvas');
+  if (!viewport || !stage || !canvas) return;
+
+  const projectId = viewport.dataset.projectId;
+
+  // Global toggle for swimlane collapse
+  window.toggleDiagramLaneCollapse = function (laneId) {
+    if (state.collapsedLanes.has(laneId)) {
+      state.collapsedLanes.delete(laneId);
+    } else {
+      state.collapsedLanes.add(laneId);
+    }
+    const collapsedStr = Array.from(state.collapsedLanes).join(',');
+    const url = '/projects/' + projectId + '/diagram?collapsed=' + encodeURIComponent(collapsedStr);
+    if (window.htmx) {
+      window.htmx.ajax('GET', url, { target: '#diagram-container', swap: 'innerHTML' });
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Filters Logic
+  // -------------------------------------------------------------------------
+  const filterLane = document.getElementById('diagram-filter-lane');
+  const filterStatus = document.getElementById('diagram-filter-status');
+  const filterResponsible = document.getElementById('diagram-filter-responsible');
+  const filterHideCompleted = document.getElementById('diagram-filter-hide-completed');
+  const filterShowReqs = document.getElementById('diagram-filter-show-requirements');
+
+  // Restore filter input states
+  if (filterLane && state.filters.lane) filterLane.value = state.filters.lane;
+  if (filterStatus && state.filters.status) filterStatus.value = state.filters.status;
+  if (filterResponsible && state.filters.responsible) filterResponsible.value = state.filters.responsible;
+  if (filterHideCompleted) filterHideCompleted.checked = !!state.filters.hideCompleted;
+  if (filterShowReqs) filterShowReqs.checked = !!state.filters.showRequirements;
+
+  function applyFilters() {
+    state.filters.lane = filterLane ? filterLane.value : 'all';
+    state.filters.status = filterStatus ? filterStatus.value : 'all';
+    state.filters.responsible = filterResponsible ? filterResponsible.value : 'all';
+    state.filters.hideCompleted = filterHideCompleted ? filterHideCompleted.checked : false;
+    state.filters.showRequirements = filterShowReqs ? filterShowReqs.checked : false;
+
+    if (state.filters.showRequirements) {
+      canvas.classList.add('show-reqs-active');
+    } else {
+      canvas.classList.remove('show-reqs-active');
+    }
+
+    const cards = canvas.querySelectorAll('.task-card, .milestone-node');
+    const hiddenTaskCodes = new Set();
+
+    cards.forEach(function (card) {
+      const laneId = card.dataset.laneId;
+      const status = card.dataset.status;
+      const resp = card.dataset.responsible;
+      const isDone = card.dataset.done === 'true';
+
+      let visible = true;
+      if (state.filters.lane !== 'all' && laneId !== state.filters.lane) visible = false;
+      if (state.filters.status !== 'all' && status !== state.filters.status) visible = false;
+      if (state.filters.responsible !== 'all' && resp !== state.filters.responsible) visible = false;
+      if (state.filters.hideCompleted && isDone) visible = false;
+
+      if (!visible) {
+        card.classList.add('task-filtered-hidden');
+        hiddenTaskCodes.add(card.dataset.taskCode);
+      } else {
+        card.classList.remove('task-filtered-hidden');
+      }
+    });
+
+    // Update arrows
+    const arrows = canvas.querySelectorAll('.diagram-arrow');
+    arrows.forEach(function (arrow) {
+      const src = arrow.dataset.src;
+      const dst = arrow.dataset.dst;
+      if (hiddenTaskCodes.has(src) || hiddenTaskCodes.has(dst)) {
+        arrow.classList.add('arrow-filtered-hidden');
+      } else {
+        arrow.classList.remove('arrow-filtered-hidden');
+      }
+    });
+
+    drawMinimap();
+  }
+
+  [filterLane, filterStatus, filterResponsible].forEach(function (el) {
+    if (el) el.addEventListener('change', applyFilters);
+  });
+  [filterHideCompleted, filterShowReqs].forEach(function (el) {
+    if (el) el.addEventListener('change', applyFilters);
+  });
+
+  // -------------------------------------------------------------------------
+  // Zoom & Pan Engine
+  // -------------------------------------------------------------------------
+  const zoomResetBtn = document.getElementById('btn-zoom-reset');
+  const zoomInBtn = document.getElementById('btn-zoom-in');
+  const zoomOutBtn = document.getElementById('btn-zoom-out');
+  const zoomFitBtn = document.getElementById('btn-zoom-fit');
+  const zoomCenterBtn = document.getElementById('btn-zoom-center');
+
+  function updateTransform() {
+    stage.style.transform = 'translate(' + state.panX + 'px, ' + state.panY + 'px) scale(' + state.zoom + ')';
+    if (zoomResetBtn) {
+      zoomResetBtn.textContent = Math.round(state.zoom * 100) + '%';
+    }
+    updateMinimapViewfinder();
+  }
+
+  function setZoom(newZoom, centerX, centerY) {
+    const clamped = Math.min(Math.max(newZoom, 0.2), 2.5);
+    if (centerX !== undefined && centerY !== undefined) {
+      state.panX = centerX - (centerX - state.panX) * (clamped / state.zoom);
+      state.panY = centerY - (centerY - state.panY) * (clamped / state.zoom);
+    }
+    state.zoom = clamped;
+    updateTransform();
+  }
+
+  if (zoomInBtn) {
+    zoomInBtn.addEventListener('click', function () {
+      setZoom(state.zoom * 1.15, viewport.clientWidth / 2, viewport.clientHeight / 2);
+    });
+  }
+  if (zoomOutBtn) {
+    zoomOutBtn.addEventListener('click', function () {
+      setZoom(state.zoom / 1.15, viewport.clientWidth / 2, viewport.clientHeight / 2);
+    });
+  }
+  if (zoomResetBtn) {
+    zoomResetBtn.addEventListener('click', function () {
+      state.zoom = 1.0;
+      state.panX = 0;
+      state.panY = 0;
+      updateTransform();
+    });
+  }
+
+  function fitDiagram() {
+    const cw = canvas.offsetWidth || 1000;
+    const ch = canvas.offsetHeight || 600;
+    const vw = viewport.clientWidth - 40;
+    const vh = viewport.clientHeight - 40;
+    const fitScale = Math.min(vw / cw, vh / ch, 1.0);
+    state.zoom = Math.max(fitScale, 0.2);
+    state.panX = Math.max(16, (viewport.clientWidth - cw * state.zoom) / 2);
+    state.panY = Math.max(16, (viewport.clientHeight - ch * state.zoom) / 2);
+    updateTransform();
+  }
+
+  function centerDiagram() {
+    const cw = canvas.offsetWidth || 1000;
+    const ch = canvas.offsetHeight || 600;
+    state.panX = (viewport.clientWidth - cw * state.zoom) / 2;
+    state.panY = (viewport.clientHeight - ch * state.zoom) / 2;
+    updateTransform();
+  }
+
+  if (zoomFitBtn) zoomFitBtn.addEventListener('click', fitDiagram);
+  if (zoomCenterBtn) zoomCenterBtn.addEventListener('click', centerDiagram);
+
+  // Wheel Zoom (centered under cursor)
+  viewport.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.12 : 0.89;
+    setZoom(state.zoom * factor, mouseX, mouseY);
+  }, { passive: false });
+
+  // Drag to Pan
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let startPanX = 0;
+  let startPanY = 0;
+
+  viewport.addEventListener('mousedown', function (e) {
+    // Ignore interactive clicks
+    if (e.target.closest('button, a, input, select, .form-check, .dropdown')) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startPanX = state.panX;
+    startPanY = state.panY;
+    viewport.classList.add('is-panning');
+  });
+
+  window.addEventListener('mousemove', function (e) {
+    if (!isDragging) return;
+    state.panX = startPanX + (e.clientX - startX);
+    state.panY = startPanY + (e.clientY - startY);
+    updateTransform();
+  });
+
+  window.addEventListener('mouseup', function () {
+    if (isDragging) {
+      isDragging = false;
+      viewport.classList.remove('is-panning');
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Mini-Map Navigator
+  // -------------------------------------------------------------------------
+  const minimap = document.getElementById('diagram-minimap');
+  const minimapCanvas = document.getElementById('minimap-canvas');
+  const minimapViewBox = document.getElementById('minimap-viewport-box');
+  const toggleMinimapBtn = document.getElementById('btn-toggle-minimap');
+  const closeMinimapBtn = document.getElementById('btn-close-minimap');
+
+  if (minimap && !state.showMinimap) {
+    minimap.classList.add('minimap-hidden');
+  }
+
+  if (toggleMinimapBtn) {
+    toggleMinimapBtn.addEventListener('click', function () {
+      state.showMinimap = !state.showMinimap;
+      if (minimap) minimap.classList.toggle('minimap-hidden', !state.showMinimap);
+      if (state.showMinimap) drawMinimap();
+    });
+  }
+  if (closeMinimapBtn) {
+    closeMinimapBtn.addEventListener('click', function () {
+      state.showMinimap = false;
+      if (minimap) minimap.classList.add('minimap-hidden');
+    });
+  }
+
+  function drawMinimap() {
+    if (!minimapCanvas || !state.showMinimap) return;
+    const ctx = minimapCanvas.getContext('2d');
+    const cw = canvas.offsetWidth || 1;
+    const ch = canvas.offsetHeight || 1;
+    const mw = minimapCanvas.width;
+    const mh = minimapCanvas.height;
+
+    ctx.clearRect(0, 0, mw, mh);
+
+    const scale = Math.min(mw / cw, mh / ch);
+    const offsetX = (mw - cw * scale) / 2;
+    const offsetY = (mh - ch * scale) / 2;
+
+    // Draw lanes
+    const bands = canvas.querySelectorAll('.lane-band');
+    bands.forEach(function (band, idx) {
+      const top = parseFloat(band.style.top) || 0;
+      const height = parseFloat(band.style.height) || 40;
+      ctx.fillStyle = (idx % 2 === 0) ? '#f8fafc' : '#ffffff';
+      ctx.fillRect(offsetX, offsetY + top * scale, cw * scale, height * scale);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.strokeRect(offsetX, offsetY + top * scale, cw * scale, height * scale);
+    });
+
+    // Draw visible task cards
+    const visibleCards = canvas.querySelectorAll('.task-card:not(.task-filtered-hidden), .milestone-node:not(.task-filtered-hidden)');
+    visibleCards.forEach(function (card) {
+      const x = parseFloat(card.style.left) || 0;
+      const y = parseFloat(card.style.top) || 0;
+      const w = parseFloat(card.style.width) || 20;
+      const h = parseFloat(card.style.height) || 15;
+
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillRect(offsetX + x * scale, offsetY + y * scale, Math.max(w * scale, 3), Math.max(h * scale, 2));
+    });
+
+    updateMinimapViewfinder();
+  }
+
+  function updateMinimapViewfinder() {
+    if (!minimapViewBox || !minimapCanvas) return;
+    const cw = canvas.offsetWidth || 1;
+    const ch = canvas.offsetHeight || 1;
+    const mw = minimapCanvas.width;
+    const mh = minimapCanvas.height;
+    const scale = Math.min(mw / cw, mh / ch);
+    const offsetX = (mw - cw * scale) / 2;
+    const offsetY = (mh - ch * scale) / 2;
+
+    const visibleX = (-state.panX / state.zoom);
+    const visibleY = (-state.panY / state.zoom);
+    const visibleW = (viewport.clientWidth / state.zoom);
+    const visibleH = (viewport.clientHeight / state.zoom);
+
+    minimapViewBox.style.left = Math.max(0, offsetX + visibleX * scale) + 'px';
+    minimapViewBox.style.top = Math.max(0, offsetY + visibleY * scale) + 'px';
+    minimapViewBox.style.width = Math.min(mw, visibleW * scale) + 'px';
+    minimapViewBox.style.height = Math.min(mh, visibleH * scale) + 'px';
+  }
+
+  // Click on minimap to navigate
+  const minimapBody = document.getElementById('minimap-body');
+  if (minimapBody) {
+    minimapBody.addEventListener('click', function (e) {
+      const rect = minimapBody.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+      const cw = canvas.offsetWidth || 1;
+      const ch = canvas.offsetHeight || 1;
+      const scale = Math.min(minimapCanvas.width / cw, minimapCanvas.height / ch);
+      const targetCanvasX = (clickX - (minimapCanvas.width - cw * scale) / 2) / scale;
+      const targetCanvasY = (clickY - (minimapCanvas.height - ch * scale) / 2) / scale;
+
+      state.panX = viewport.clientWidth / 2 - targetCanvasX * state.zoom;
+      state.panY = viewport.clientHeight / 2 - targetCanvasY * state.zoom;
+      updateTransform();
+    });
+  }
+
+  // Initialize view
+  updateTransform();
+  applyFilters();
+  setTimeout(drawMinimap, 100);
+})();
+</script>

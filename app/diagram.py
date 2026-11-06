@@ -35,13 +35,15 @@ def _layout_node(task, slot_x, slot_y):
     return x, y, w, h
 
 
-def build_diagram(lanes, tasks):
+def build_diagram(lanes, tasks, members=None, collapsed_lanes=None):
     """Render swimlane diagram as HTML+SVG partial."""
     from flask import render_template
 
+    collapsed_set = set(collapsed_lanes) if collapsed_lanes else set()
     lanes = sorted(lanes, key=lambda l: l.sort_order)
     lane_ids = [l.id for l in lanes]
     lane_index = {l.id: i for i, l in enumerate(lanes)}
+    project_id = getattr(lanes[0], "project_id", None) if lanes else (getattr(tasks[0], "project_id", None) if tasks else None)
 
     # Group tasks by lane, sort by start_date then code
     tasks_by_lane = {l.id: [] for l in lanes}
@@ -50,6 +52,9 @@ def build_diagram(lanes, tasks):
             tasks_by_lane[t.lane_id].append(t)
     for lid in tasks_by_lane:
         tasks_by_lane[lid].sort(key=lambda t: (t.start_date, t.code))
+
+    lane_collapsed = {l.id: (l.id in collapsed_set) for l in lanes}
+    lane_task_counts = {l.id: len(tasks_by_lane[l.id]) for l in lanes}
 
     # All task codes available in this project
     all_tasks_map = {t.code: t for t in tasks}
@@ -82,6 +87,13 @@ def build_diagram(lanes, tasks):
     y_cursor = 0
     for lane in lanes:
         li = lane_index[lane.id]
+        if lane_collapsed[lane.id]:
+            lane_h = 42
+            lane_tops[lane.id] = y_cursor
+            lane_heights[lane.id] = lane_h
+            y_cursor += lane_h
+            continue
+
         col = None
         rows_in_col = {}      # col -> number of stacked cards
         col_for_preds = {}    # predecessor signature (or () for roots) -> col
@@ -127,13 +139,20 @@ def build_diagram(lanes, tasks):
         y_cursor += lane_h
 
     # Canvas size
-    max_width = LANE_LABEL_W + RIGHT_MARGIN
+    max_width = LANE_LABEL_W + RIGHT_MARGIN + 320
     for p in positions.values():
         max_width = max(max_width, p["x"] + p["w"] + RIGHT_MARGIN)
-    canvas_h = y_cursor + 20
+    canvas_h = max(y_cursor + 20, 240)
 
     # Status colors per task
     task_status = {t.code: STATUS_STYLES[t.status] for t in tasks}
+
+    # Distinct members for the responsible filter
+    if members is None:
+        assignee_names = sorted({t.responsible for t in tasks if t.responsible})
+        member_list = [{"name": r} for r in assignee_names]
+    else:
+        member_list = members
 
     # Build arrows
     arrows = []
@@ -300,11 +319,17 @@ def build_diagram(lanes, tasks):
             "stroke": stroke,
             "stroke_dash": stroke_dash,
             "marker": marker,
+            "src": src_code,
+            "dst": dst_code,
+            "src_lane_id": src["task"].lane_id,
+            "dst_lane_id": dst["task"].lane_id,
         })
 
     return render_template(
         "partials/diagram.html",
+        project_id=project_id,
         lanes=lanes,
+        tasks=tasks,
         tasks_by_lane=tasks_by_lane,
         positions=positions,
         canvas_w=max_width,
@@ -312,6 +337,8 @@ def build_diagram(lanes, tasks):
         arrows=arrows,
         lane_tops=lane_tops,
         lane_heights=lane_heights,
+        lane_collapsed=lane_collapsed,
+        lane_task_counts=lane_task_counts,
         lane_h=LANE_H,
         lane_label_w=LANE_LABEL_W,
         card_w=CARD_W,
@@ -321,4 +348,5 @@ def build_diagram(lanes, tasks):
         gap_x=GAP_X,
         task_status=task_status,
         status_styles=STATUS_STYLES,
+        members=member_list,
     )

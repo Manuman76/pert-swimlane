@@ -152,16 +152,31 @@ def build_project_overview(tasks, requirements, raid_items, project=None):
     if has_baseline and schedule_variance_days is not None:
         effective_slip = max(schedule_slip_days, max(0, schedule_variance_days))
 
+    # Overdue checks against today
+    incomplete_tasks = [t for t in work_tasks if t.status != "done"]
+    is_project_overdue = bool(forecast_end and forecast_end < today and incomplete_tasks)
+    overdue_days = count_workdays(forecast_end, today, calendar=cal) if is_project_overdue else 0
+
+    overdue_milestones = [m for m in milestones_list if m.is_overdue]
+    max_milestone_overdue_days = max(
+        (count_workdays(m.start_date, today, calendar=cal) for m in overdue_milestones),
+        default=0
+    )
+
     if total_tasks > 0 and completed == total_tasks:
         health_status = "completed"
         health_label = "Complete"
         health_badge_class = "health-badge-success"
         health_summary = "All planned tasks have been delivered."
-    elif risk_critical > 0 or effective_slip > 5:
+    elif risk_critical > 0 or effective_slip > 5 or overdue_days > 5 or max_milestone_overdue_days > 5:
         health_status = "critical"
         health_label = "Needs Attention"
         health_badge_class = "health-badge-danger"
         reasons = []
+        if is_project_overdue:
+            reasons.append(f"finish date passed ({overdue_days} workday{'s' if overdue_days != 1 else ''} ago with {len(incomplete_tasks)} incomplete task{'s' if len(incomplete_tasks) != 1 else ''})")
+        elif overdue_milestones:
+            reasons.append(f"{len(overdue_milestones)} milestone{'s' if len(overdue_milestones) != 1 else ''} overdue")
         if risk_critical > 0:
             reasons.append(f"{risk_critical} critical risk{'s' if risk_critical > 1 else ''}")
         if schedule_variance_days and schedule_variance_days > 0:
@@ -169,11 +184,15 @@ def build_project_overview(tasks, requirements, raid_items, project=None):
         elif schedule_slip_days > 0:
             reasons.append(f"{schedule_slip_days} workday{'s' if schedule_slip_days > 1 else ''} slip")
         health_summary = f"Flagged: {', '.join(reasons)}."
-    elif risk_high > 0 or effective_slip > 0 or (req_total > 0 and req_covered == 0):
+    elif risk_high > 0 or effective_slip > 0 or overdue_days > 0 or overdue_milestones or (req_total > 0 and req_covered == 0):
         health_status = "at_risk"
         health_label = "At Risk"
         health_badge_class = "health-badge-warning"
         reasons = []
+        if is_project_overdue:
+            reasons.append(f"project finish date passed ({overdue_days} workday{'s' if overdue_days != 1 else ''} ago)")
+        elif overdue_milestones:
+            reasons.append(f"{len(overdue_milestones)} milestone{'s' if len(overdue_milestones) != 1 else ''} overdue")
         if schedule_variance_days and schedule_variance_days > 0:
             reasons.append(f"+{schedule_variance_days} workday{'s' if schedule_variance_days != 1 else ''} schedule variance")
         elif schedule_slip_days > 0:
@@ -214,6 +233,8 @@ def build_project_overview(tasks, requirements, raid_items, project=None):
         baseline_set_at=baseline_set_at,
         baseline_target_end=baseline_target_end,
         schedule_variance_days=schedule_variance_days,
+        is_project_overdue=is_project_overdue,
+        overdue_days=overdue_days,
         schedule_start=project_start,
         schedule_target=target_end,
         schedule_forecast=forecast_end,

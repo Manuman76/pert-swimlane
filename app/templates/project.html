@@ -145,12 +145,18 @@
       </div>
     </div>
   </div>
-  <aside id="task-detail-panel" class="task-detail-panel" aria-label="Task details"
-         data-empty-url="{{ url_for('main.task_detail_empty', id=project.id) }}"
-         data-detail-url="{{ url_for('main.task_detail', task_id=0) }}">
-    {% include "partials/task_detail_empty.html" %}
-  </aside>
 </div>
+</div>
+
+<!-- Task Detail Popup Modal -->
+<div class="modal fade" id="taskDetailModal" tabindex="-1" aria-labelledby="taskDetailModalLabel" aria-hidden="true"
+     data-empty-url="{{ url_for('main.task_detail_empty', id=project.id) }}"
+     data-detail-url="{{ url_for('main.task_detail', task_id=0) }}">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content overflow-hidden" id="task-detail-modal-content">
+      <div class="p-4 text-center text-muted">Loading task details…</div>
+    </div>
+  </div>
 </div>
 
 <div class="tab-pane fade" id="diagram-pane" role="tabpanel"
@@ -463,11 +469,11 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
   }
 });
 
-// Task detail side panel: row click opens panel; keep row highlight in sync.
+// Task detail modal popup: row or diagram click opens popup; keep row highlight in sync.
 (function () {
   function detailUrl(taskId) {
-    var panel = document.getElementById('task-detail-panel');
-    var template = panel && panel.dataset.detailUrl;
+    var modal = document.getElementById('taskDetailModal');
+    var template = modal && modal.dataset.detailUrl;
     if (!template) return '/tasks/' + taskId + '/detail';
     return template.replace('/tasks/0/', '/tasks/' + taskId + '/');
   }
@@ -479,13 +485,20 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
     });
   }
 
-  function reloadOpenDetailPanel() {
-    var inner = document.querySelector('#task-detail-panel [data-task-id]');
-    if (!inner || typeof htmx === 'undefined') return;
-    htmx.ajax('GET', detailUrl(inner.dataset.taskId), {
-      target: '#task-detail-panel',
-      swap: 'innerHTML'
-    });
+  function openTaskDetailModal(taskId) {
+    if (!taskId) return;
+    highlightTaskRow(taskId);
+    var modalEl = document.getElementById('taskDetailModal');
+    if (!modalEl) return;
+    var modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalInstance.show();
+
+    if (typeof htmx !== 'undefined') {
+      htmx.ajax('GET', detailUrl(taskId), {
+        target: '#task-detail-modal-content',
+        swap: 'innerHTML'
+      });
+    }
   }
 
   var tbody = document.getElementById('task-table-body');
@@ -501,14 +514,26 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
     });
   }
 
+  // Open modal when clicking on task cards or milestone nodes in the diagram
+  document.body.addEventListener('click', function (evt) {
+    var card = evt.target.closest('.diagram-canvas .task-card, .diagram-canvas .milestone-node');
+    if (!card) return;
+    if (evt.target.closest('button, a, input, select')) return;
+    var codeEl = card.querySelector('.card-cell, .milestone-name');
+    var taskCode = card.dataset.taskCode || (codeEl ? codeEl.textContent.trim() : null);
+    // Find matching row in task table to get the numeric task ID
+    var matchingRow = taskCode ? document.querySelector('#task-table-body tr.task-grid-row[data-task-code="' + taskCode + '"]') : null;
+    var taskId = matchingRow ? matchingRow.dataset.taskId : null;
+    if (taskId) {
+      openTaskDetailModal(taskId);
+    }
+  });
+
   document.body.addEventListener('htmx:afterSwap', function (evt) {
-    if (evt.detail.target.id === 'task-detail-panel') {
+    if (evt.detail.target.id === 'task-detail-modal-content') {
       var inner = evt.detail.target.querySelector('[data-task-id]');
       highlightTaskRow(inner ? inner.dataset.taskId : null);
       return;
-    }
-    if (evt.detail.target.id === 'task-table-body') {
-      reloadOpenDetailPanel();
     }
   });
 })();

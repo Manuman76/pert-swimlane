@@ -221,7 +221,9 @@
                     <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill" style="font-size: 0.72rem;">On baseline</span>
                   {% endif %}
                 {% elif p.overview.has_schedule %}
-                  {% if p.overview.schedule_slip_days > 0 %}
+                  {% if p.overview.is_project_overdue %}
+                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill" style="font-size: 0.72rem;">+{{ p.overview.overdue_days }}d overdue</span>
+                  {% elif p.overview.schedule_slip_days > 0 %}
                     <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill" style="font-size: 0.72rem;">+{{ p.overview.schedule_slip_days }}d slip</span>
                   {% else %}
                     <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill" style="font-size: 0.72rem;">On schedule</span>

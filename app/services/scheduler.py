@@ -229,3 +229,104 @@ def clear_project_baseline(project_id):
         t.baseline_duration_days = None
     db.session.commit()
 
+
+def compute_critical_path(tasks, calendar=None):
+    """Compute critical path tasks and dependency edges using the Critical Path Method (CPM).
+
+    Returns:
+        critical_task_codes: set of task codes on the critical path.
+        critical_edges: set of (pred_code, succ_code) tuples on the critical path.
+    """
+    if not tasks:
+        return set(), set()
+
+    by_code = {t.code: t for t in tasks}
+    cal = calendar
+    if cal is None and tasks and hasattr(tasks[0], "project") and getattr(tasks[0], "project", None):
+        cal = tasks[0].project.calendar
+
+    valid_starts = [t.start_date for t in tasks if t.start_date]
+    valid_ends = [t.end_date for t in tasks if t.end_date]
+    if not valid_starts or not valid_ends:
+        return set(), set()
+
+    project_start = min(valid_starts)
+    project_end = max(valid_ends)
+    project_duration = count_workdays(project_start, project_end, calendar=cal)
+
+    es = {}
+    ef = {}
+    for code, t in by_code.items():
+        if t.start_date and t.end_date:
+            es[code] = count_workdays(project_start, t.start_date, calendar=cal)
+            ef[code] = count_workdays(project_start, t.end_date, calendar=cal)
+        else:
+            es[code] = 0
+            ef[code] = 0
+
+    succs = {code: [] for code in by_code}
+    preds_map = {code: [] for code in by_code}
+    for code, t in by_code.items():
+        for p in t.predecessor_codes():
+            if p in by_code and p != code:
+                succs[p].append(code)
+                preds_map[code].append(p)
+
+    indegree = {code: len(preds_map[code]) for code in by_code}
+    queue = deque(sorted(c for c in by_code if indegree[c] == 0))
+    topo_order = []
+    while queue:
+        c = queue.popleft()
+        topo_order.append(c)
+        for s in succs[c]:
+            indegree[s] -= 1
+            if indegree[s] == 0:
+                queue.append(s)
+
+    remaining = [c for c in by_code if c not in topo_order]
+    topo_order.extend(remaining)
+
+    # Backward pass
+    lf = {}
+    ls = {}
+    for code in reversed(topo_order):
+        t = by_code[code]
+        dur = 0 if t.is_milestone else (t.duration_days or 0)
+        if not succs[code]:
+            # Tasks ending before the project finish have float proportional to how early they finish
+            lf[code] = project_duration
+        else:
+            lf[code] = min(ls[s] for s in succs[code])
+        ls[code] = lf[code] - dur
+
+    critical_task_codes = set()
+    for code in by_code:
+        # Task is on the critical path if total float is 0
+        total_float = ls.get(code, 0) - es.get(code, 0)
+        if total_float == 0 and ef.get(code, 0) > 0:
+            critical_task_codes.add(code)
+
+    # If all tasks had float 0 but some don't lead to project_end, filter to those that reach project_end
+    reaches_end = {code for code, t in by_code.items() if t.end_date == project_end and code in critical_task_codes}
+    active_back = deque(reaches_end)
+    verified_critical_tasks = set(reaches_end)
+    while active_back:
+        curr = active_back.popleft()
+        for p in preds_map[curr]:
+            if p in critical_task_codes and (by_code[p].end_date == by_code[curr].start_date or ef[p] == es[curr]):
+                if p not in verified_critical_tasks:
+                    verified_critical_tasks.add(p)
+                    active_back.append(p)
+
+    final_critical_tasks = verified_critical_tasks if verified_critical_tasks else critical_task_codes
+
+    critical_edges = set()
+    for code in final_critical_tasks:
+        for p in preds_map[code]:
+            if p in final_critical_tasks:
+                if by_code[p].end_date == by_code[code].start_date or ef[p] == es[code]:
+                    critical_edges.add((p, code))
+
+    return final_critical_tasks, critical_edges
+
+
