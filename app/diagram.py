@@ -1,8 +1,11 @@
 from collections import deque
 from datetime import timedelta
+import heapq
 
 CARD_W = 168
 CARD_H = 108  # tall enough for a two-line title
+MILESTONE_W = 52
+MILESTONE_H = 52
 GAP_X = 24
 V_GAP = 16
 LANE_H = 140
@@ -10,6 +13,7 @@ LANE_GAP = 0
 LANE_LABEL_W = 120
 HEADER_H = 36
 RIGHT_MARGIN = 40
+ROUTE_CLEARANCE = 6
 # Vertical breathing room above/below the cards inside a lane.
 V_PAD = (LANE_H - CARD_H) // 2
 
@@ -21,13 +25,27 @@ STATUS_STYLES = {
 }
 
 
-def build_diagram(lanes, tasks):
+def _layout_node(task, slot_x, slot_y):
+    """Return pixel box (x, y, w, h) for a task card or centered milestone diamond."""
+    if task.is_milestone:
+        w, h = MILESTONE_W, MILESTONE_H
+        x = slot_x + (CARD_W - w) / 2
+        y = slot_y + (CARD_H - h) / 2
+    else:
+        w, h = CARD_W, CARD_H
+        x, y = slot_x, slot_y
+    return x, y, w, h
+
+
+def build_diagram(lanes, tasks, members=None, collapsed_lanes=None):
     """Render swimlane diagram as HTML+SVG partial."""
     from flask import render_template
 
+    collapsed_set = set(collapsed_lanes) if collapsed_lanes else set()
     lanes = sorted(lanes, key=lambda l: l.sort_order)
     lane_ids = [l.id for l in lanes]
     lane_index = {l.id: i for i, l in enumerate(lanes)}
+    project_id = getattr(lanes[0], "project_id", None) if lanes else (getattr(tasks[0], "project_id", None) if tasks else None)
 
     # Group tasks by lane, sort by start_date then code
     tasks_by_lane = {l.id: [] for l in lanes}
@@ -36,6 +54,9 @@ def build_diagram(lanes, tasks):
             tasks_by_lane[t.lane_id].append(t)
     for lid in tasks_by_lane:
         tasks_by_lane[lid].sort(key=lambda t: (t.start_date, t.code))
+
+    lane_collapsed = {l.id: (l.id in collapsed_set) for l in lanes}
+    lane_task_counts = {l.id: len(tasks_by_lane[l.id]) for l in lanes}
 
     # All task codes available in this project
     all_tasks_map = {t.code: t for t in tasks}
@@ -60,32 +81,37 @@ def build_diagram(lanes, tasks):
             if in_deg[d] == 0:
                 queue.append(d)
 
-    # Build positions. Within a lane, tasks that share the same (non-empty)
-    # predecessor set are siblings: they occupy the same column and stack
-    # vertically. This keeps their shared incoming arrow from crossing the
-    # other sibling's card.
+    # Build positions. Within a lane, tasks that share the same predecessor
+    # set (including none) are siblings: same column, stacked vertically.
     positions = {}  # task.code -> {x, y, lane_idx, idx_in_lane, col, row}
     lane_tops = {}  # lane.id -> top offset (px)
     lane_heights = {}  # lane.id -> band height (px)
     y_cursor = 0
     for lane in lanes:
         li = lane_index[lane.id]
+        if lane_collapsed[lane.id]:
+            lane_h = 42
+            lane_tops[lane.id] = y_cursor
+            lane_heights[lane.id] = lane_h
+            y_cursor += lane_h
+            continue
+
         col = None
         rows_in_col = {}      # col -> number of stacked cards
-        col_for_preds = {}    # predecessor signature -> col
+        col_for_preds = {}    # predecessor signature (or () for roots) -> col
         placements = []
         for idx, task in enumerate(tasks_by_lane[lane.id]):
             preds = tuple(sorted(
                 p for p in task.predecessor_codes() if p in all_tasks_map
             ))
-            if preds and preds in col_for_preds:
-                c = col_for_preds[preds]
+            group_key = preds if preds else ()
+            if group_key in col_for_preds:
+                c = col_for_preds[group_key]
             else:
                 base = min_col[task.code]
-                c = base if col is None else max(base, col + 1)
-                col = c
-                if preds:
-                    col_for_preds[preds] = c
+                c = base
+                col_for_preds[group_key] = c
+                col = c if col is None else max(col, c)
             r = rows_in_col.get(c, 0)
             rows_in_col[c] = r + 1
             placements.append((task, idx, c, r))
@@ -98,11 +124,14 @@ def build_diagram(lanes, tasks):
         lane_heights[lane.id] = lane_h
 
         for task, idx, c, r in placements:
-            x = LANE_LABEL_W + GAP_X + c * (CARD_W + GAP_X)
-            y = y_cursor + top_pad + r * (CARD_H + V_GAP)
+            slot_x = LANE_LABEL_W + GAP_X + c * (CARD_W + GAP_X)
+            slot_y = y_cursor + top_pad + r * (CARD_H + V_GAP)
+            x, y, w, h = _layout_node(task, slot_x, slot_y)
             positions[task.code] = {
                 "x": x,
                 "y": y,
+                "w": w,
+                "h": h,
                 "lane_idx": li,
                 "idx_in_lane": idx,
                 "col": c,
@@ -112,16 +141,20 @@ def build_diagram(lanes, tasks):
         y_cursor += lane_h
 
     # Canvas size
-    max_width = LANE_LABEL_W + RIGHT_MARGIN
+    max_width = LANE_LABEL_W + RIGHT_MARGIN + 320
     for p in positions.values():
-        max_width = max(max_width, p["x"] + CARD_W + RIGHT_MARGIN)
-    canvas_h = y_cursor + 20
+        max_width = max(max_width, p["x"] + p["w"] + RIGHT_MARGIN)
+    canvas_h = max(y_cursor + 20, 240)
 
     # Status colors per task
     task_status = {t.code: STATUS_STYLES[t.status] for t in tasks}
 
-    # Build arrows
-    arrows = []
+    # Distinct members for the responsible filter
+    if members is None:
+        assignee_names = sorted({t.responsible for t in tasks if t.responsible})
+        member_list = [{"name": r} for r in assignee_names]
+    else:
+        member_list = members
 
     # Collect dependency edges
     edges = []
@@ -130,140 +163,220 @@ def build_diagram(lanes, tasks):
             if pcode in all_tasks_map:
                 edges.append((pcode, task.code))
 
-    # Offset tracking for overlapping vertical segments
-    v_offsets = {}  # (x, y1, y2) -> next offset
+    # Route on a visibility grid around inflated card bounds. This gives
+    # arrows a small clearance and, unlike a fixed elbow, can route around
+    # intermediate cards even when source and destination share a row.
+    obstacles = {}
+    x_coords = {0, max_width}
+    y_coords = {0, canvas_h}
+    for code, pos in positions.items():
+        left = pos["x"] - ROUTE_CLEARANCE
+        right = pos["x"] + pos["w"] + ROUTE_CLEARANCE
+        top = pos["y"] - ROUTE_CLEARANCE
+        bottom = pos["y"] + pos["h"] + ROUTE_CLEARANCE
+        obstacles[code] = (left, top, right, bottom)
+        x_coords.update((left, pos["x"], pos["x"] + pos["w"] / 2,
+                         pos["x"] + pos["w"], right))
+        y_coords.update((top, pos["y"], pos["y"] + pos["h"] / 2,
+                         pos["y"] + pos["h"], bottom))
 
-    def get_v_offset(x, y1, y2):
-        key = (round(x), round(min(y1, y2)), round(max(y1, y2)))
-        off = v_offsets.get(key, 0)
-        v_offsets[key] = off + 8
-        return off
+    x_coords = sorted(x_coords)
+    y_coords = sorted(y_coords)
 
-    def v_seg_clash(x, y1, y2):
-        """True if a vertical segment at x between y1 and y2 crosses a card."""
-        lo, hi = min(y1, y2), max(y1, y2)
-        for p in positions.values():
-            if not (p["x"] < x < p["x"] + CARD_W):
+    def point_blocked(x, y):
+        return any(
+            left < x < right and top < y < bottom
+            for left, top, right, bottom in obstacles.values()
+        )
+
+    def segment_clear(x1, y1, x2, y2, ignored_codes=frozenset()):
+        for code, (left, top, right, bottom) in obstacles.items():
+            if code in ignored_codes:
                 continue
-            if lo < p["y"] + CARD_H and hi > p["y"]:
-                return True
-        return False
+            if x1 == x2:
+                if left < x1 < right and min(y1, y2) < bottom and max(y1, y2) > top:
+                    return False
+            elif y1 == y2:
+                if top < y1 < bottom and min(x1, x2) < right and max(x1, x2) > left:
+                    return False
+        return True
+
+    # The visibility graph is shared by all edges in this diagram render.
+    graph = {}
+    rows = {}
+    columns = {}
+    for x in x_coords:
+        for y in y_coords:
+            if point_blocked(x, y):
+                continue
+            node = (x, y)
+            graph[node] = []
+            rows.setdefault(y, []).append(node)
+            columns.setdefault(x, []).append(node)
+
+    def connect_line(nodes):
+        nodes.sort()
+        for first, second in zip(nodes, nodes[1:]):
+            x1, y1 = first
+            x2, y2 = second
+            if segment_clear(x1, y1, x2, y2):
+                distance = abs(x2 - x1) + abs(y2 - y1)
+                direction = "h" if y1 == y2 else "v"
+                graph[first].append((second, distance, direction))
+                graph[second].append((first, distance, direction))
+
+    for row in rows.values():
+        connect_line(row)
+    for column in columns.values():
+        connect_line(column)
+
+    def find_grid_path(start, end):
+        if start not in graph or end not in graph:
+            return None
+        start_state = (start, None)
+        costs = {start_state: 0}
+        previous = {}
+        pending = [(abs(start[0] - end[0]) + abs(start[1] - end[1]),
+                    0, start, None)]
+        final_state = None
+        while pending:
+            _estimate, cost, node, previous_direction = heapq.heappop(pending)
+            state = (node, previous_direction)
+            if cost != costs.get(state):
+                continue
+            if node == end:
+                final_state = state
+                break
+            for neighbor, distance, direction in graph[node]:
+                next_cost = cost + distance
+                if previous_direction and previous_direction != direction:
+                    next_cost += 24
+                next_state = (neighbor, direction)
+                if next_cost >= costs.get(next_state, float("inf")):
+                    continue
+                costs[next_state] = next_cost
+                previous[next_state] = state
+                estimate = next_cost + abs(neighbor[0] - end[0]) + abs(neighbor[1] - end[1])
+                heapq.heappush(
+                    pending, (estimate, next_cost, neighbor, direction)
+                )
+        if final_state is None:
+            return None
+        path = []
+        state = final_state
+        while state != start_state:
+            path.append(state[0])
+            state = previous[state]
+        path.append(start)
+        return list(reversed(path))
+
+    def side_points(pos, side):
+        x, y, w, h = pos["x"], pos["y"], pos["w"], pos["h"]
+        if side == "right":
+            return (x + w, y + h / 2), (x + w + ROUTE_CLEARANCE, y + h / 2)
+        if side == "left":
+            return (x, y + h / 2), (x - ROUTE_CLEARANCE, y + h / 2)
+        if side == "bottom":
+            return (x + w / 2, y + h), (x + w / 2, y + h + ROUTE_CLEARANCE)
+        return (x + w / 2, y), (x + w / 2, y - ROUTE_CLEARANCE)
+
+    def route_around_cards(src_code, dst_code, preferred_source, preferred_target):
+        sides = ("right", "left", "bottom", "top")
+        side_pairs = [(preferred_source, preferred_target)]
+        alternatives = [
+            (source_side, target_side)
+            for source_side in sides
+            for target_side in sides
+            if (source_side, target_side) != (preferred_source, preferred_target)
+        ]
+        alternatives.sort(key=lambda pair: (
+            pair[0] != preferred_source,
+            pair[1] != preferred_target,
+            sides.index(pair[0]),
+            sides.index(pair[1]),
+        ))
+        side_pairs.extend(alternatives)
+        ignored = frozenset((src_code, dst_code))
+
+        for source_side, target_side in side_pairs:
+            source_anchor, start = side_points(positions[src_code], source_side)
+            target_anchor, end = side_points(positions[dst_code], target_side)
+            if not segment_clear(*source_anchor, *start, ignored):
+                continue
+            if not segment_clear(*end, *target_anchor, ignored):
+                continue
+            grid_path = find_grid_path(start, end)
+            if not grid_path:
+                continue
+
+            points = [source_anchor, *grid_path, target_anchor]
+            simplified = []
+            for point in points:
+                if simplified and point == simplified[-1]:
+                    continue
+                while len(simplified) >= 2:
+                    x1, y1 = simplified[-2]
+                    x2, y2 = simplified[-1]
+                    x3, y3 = point
+                    if (x1 == x2 == x3) or (y1 == y2 == y3):
+                        simplified.pop()
+                    else:
+                        break
+                simplified.append(point)
+            return " ".join(
+                f"{'M' if index == 0 else 'L'} {x:g} {y:g}"
+                for index, (x, y) in enumerate(simplified)
+            )
+        raise RuntimeError(f"Unable to route dependency arrow {src_code} -> {dst_code}")
+
+    # Build arrows
+    arrows = []
 
     for src_code, dst_code in edges:
         if src_code not in positions or dst_code not in positions:
             continue
         src = positions[src_code]
         dst = positions[dst_code]
-        sx, sy = src["x"], src["y"]
         dx, dy = dst["x"], dst["y"]
+        dw, dh = dst["w"], dst["h"]
         s_lane = src["lane_idx"]
         d_lane = dst["lane_idx"]
 
-        backward = (d_lane < s_lane) or (d_lane == s_lane and dx < sx + CARD_W)
-        # A backward edge whose destination still sits strictly to the right can
-        # be drawn as a direct elbow instead of looping around the outer margin.
-        backward_direct = d_lane < s_lane and dx > sx + CARD_W
-
-        # Anchor points
-        if backward_direct:
-            # leave right, enter left (same as a forward edge)
-            ax1 = sx + CARD_W
-            ay1 = sy + CARD_H / 2
-            ax2 = dx
-            ay2 = dy + CARD_H / 2
-        elif backward:
-            # leave from bottom, enter from top
-            ax1 = sx + CARD_W / 2
-            ay1 = sy + CARD_H
-            ax2 = dx + CARD_W / 2
-            ay2 = dy
-        else:
-            # normal: leave right, enter left
-            ax1 = sx + CARD_W
-            ay1 = sy + CARD_H / 2
-            ax2 = dx
-            ay2 = dy + CARD_H / 2
-
-        path = ""
+        backward = (d_lane < s_lane) or (
+            d_lane == s_lane and dx + dw <= src["x"]
+        )
+        backward_direct = d_lane < s_lane and dx > src["x"] + src["w"]
+        preferred_source, preferred_target = (
+            ("bottom", "top") if backward and not backward_direct else ("right", "left")
+        )
+        path = route_around_cards(
+            src_code, dst_code, preferred_source, preferred_target
+        )
         marker = "url(#arrowhead)"
         stroke = "#444"
         stroke_dash = ""
 
-        if not backward and s_lane == d_lane and ay1 == ay2:
-            # Same lane, same row, forward: horizontal straight
-            path = f"M {ax1} {ay1} L {ax2} {ay2}"
-        elif not backward and s_lane == d_lane:
-            # Same lane but stacked rows: right stub -> vertical -> left edge
-            stub = 12
-            path = f"M {ax1} {ay1} L {ax1 + stub} {ay1} L {ax1 + stub} {ay2} L {ax2} {ay2}"
-        elif not backward and d_lane > s_lane:
-            # Downward: right stub -> vertical -> left stub
-            stub = 12
-            candidates = []
-            if dx > sx + CARD_W:
-                candidates.append(sx + CARD_W + (dx - (sx + CARD_W)) / 2)
-            candidates.append(ax1 + stub)
-            # Pick a vertical x that does not pass through cards in the lanes in between.
-            mid_x = None
-            for cand in candidates:
-                clash = any(
-                    s_lane < p["lane_idx"] < d_lane and p["x"] < cand < p["x"] + CARD_W
-                    for p in positions.values()
-                )
-                if not clash:
-                    mid_x = cand
-                    break
-            if mid_x is None:
-                mid_x = candidates[-1] + get_v_offset(candidates[-1], ay1, ay2)
-            path = f"M {ax1} {ay1} L {mid_x} {ay1} L {mid_x} {ay2} L {ax2} {ay2}"
-        elif backward_direct:
-            # Destination is upper-right: a direct elbow (right -> up -> left) is
-            # clean enough to render like any normal dependency.
-            stub = 12
-            gap = dx - (sx + CARD_W)
-            cands = []
-            if gap >= 2 * stub:
-                cands.append(sx + CARD_W + gap / 2)
-            if gap > stub:
-                cands.append(sx + CARD_W + stub)
-                cands.append(dx - stub)
-            if not cands:
-                cands.append((sx + CARD_W + dx) / 2)
-            mid_x = None
-            for cand in cands:
-                if not v_seg_clash(cand, ay1, ay2):
-                    mid_x = cand
-                    break
-            if mid_x is None:
-                mid_x = cands[-1] + get_v_offset(cands[-1], ay1, ay2)
-            path = f"M {ax1} {ay1} L {mid_x} {ay1} L {mid_x} {ay2} L {ax2} {ay2}"
-        else:
-            # Backward: task sits left/above; the route has to loop around the
-            # outer right margin and enter the destination from its top. The red
-            # dashed styling flags it as an out-of-order dependency.
+        if backward and not backward_direct:
             stroke = "#c0392b"
             stroke_dash = "4,3"
             marker = "url(#arrowhead-red)"
-            if d_lane < s_lane:
-                # up and left: go right, up, left
-                rx = max_width - 20
-                path = f"M {ax1} {ay1} L {rx} {ay1} L {rx} {ay2} L {ax2} {ay2}"
-            else:
-                # same lane backward: go down under cards, back left, up
-                under_y = sy + CARD_H + 20 + get_v_offset(sx, sy, sy + CARD_H + 20)
-                back_x = max(ax2 - 10, 0)
-                path = f"M {ax1} {ay1} L {ax1 + 10} {ay1} L {ax1 + 10} {under_y} L {back_x} {under_y} L {back_x} {ay2} L {ax2} {ay2}"
 
         arrows.append({
             "path": path,
             "stroke": stroke,
             "stroke_dash": stroke_dash,
             "marker": marker,
+            "src": src_code,
+            "dst": dst_code,
+            "src_lane_id": src["task"].lane_id,
+            "dst_lane_id": dst["task"].lane_id,
         })
 
     return render_template(
         "partials/diagram.html",
+        project_id=project_id,
         lanes=lanes,
+        tasks=tasks,
         tasks_by_lane=tasks_by_lane,
         positions=positions,
         canvas_w=max_width,
@@ -271,11 +384,16 @@ def build_diagram(lanes, tasks):
         arrows=arrows,
         lane_tops=lane_tops,
         lane_heights=lane_heights,
+        lane_collapsed=lane_collapsed,
+        lane_task_counts=lane_task_counts,
         lane_h=LANE_H,
         lane_label_w=LANE_LABEL_W,
         card_w=CARD_W,
         card_h=CARD_H,
+        milestone_w=MILESTONE_W,
+        milestone_h=MILESTONE_H,
         gap_x=GAP_X,
         task_status=task_status,
         status_styles=STATUS_STYLES,
+        members=member_list,
     )

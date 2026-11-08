@@ -1,19 +1,26 @@
 /* Diagram styles */
 .diagram-wrapper {
-  overflow-x: auto;
   background: #fff;
   border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diagram-toolbar {
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .diagram-legend {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #ddd;
-  background: #fff;
+  padding: 6px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
   font-size: 12px;
-  color: #444;
+  color: #475569;
 }
 
 .legend-title {
@@ -39,9 +46,90 @@
   line-height: 1;
 }
 
+/* Diagram Viewport & Pan/Zoom Stage */
+.diagram-viewport {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: calc(100vh - 365px);
+  height: calc(100dvh - 365px);
+  min-height: 320px;
+  background: #f8fafc;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.diagram-viewport.is-panning {
+  cursor: grabbing;
+}
+
+.diagram-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
 .diagram-canvas {
   position: relative;
   background: #fafafa;
+}
+
+/* Mini-Map Floating Box */
+.diagram-minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 196px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(4px);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  z-index: 30;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.diagram-minimap.minimap-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+}
+
+.minimap-header {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.minimap-body {
+  position: relative;
+  width: 180px;
+  height: 110px;
+  margin: 6px 8px 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+#minimap-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.minimap-viewport-box {
+  position: absolute;
+  border: 2px solid #0d6efd;
+  background: rgba(13, 110, 253, 0.15);
+  border-radius: 2px;
+  box-sizing: border-box;
+  pointer-events: none;
 }
 
 .diagram-header {
@@ -85,22 +173,68 @@
   background: #f4f7f9;
 }
 
+.lane-band.lane-collapsed {
+  height: 42px !important;
+  background: #f1f5f9 !important;
+}
+
 .lane-label {
   position: absolute;
   left: 0;
   top: 0;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
   padding-right: 12px;
   box-sizing: border-box;
   border-right: 1px solid #ddd;
+  background: inherit;
+  z-index: 6;
+}
+
+.lane-collapse-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  text-align: right;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.lane-collapse-toggle:hover {
+  color: #0d6efd;
+}
+
+.lane-collapse-icon {
+  font-size: 9px;
+  color: #64748b;
+  width: 10px;
+  display: inline-block;
+  text-align: center;
+}
+
+.lane-task-count {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.lane-band.lane-collapsed .lane-label {
+  height: 42px !important;
 }
 
 .lane-name {
   font-size: 13px;
   font-weight: 600;
-  color: #444;
+  color: inherit;
   text-align: right;
 }
 
@@ -114,6 +248,32 @@
   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   overflow: hidden;
   z-index: 5;
+  transition: opacity 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Filtering classes */
+.diagram-canvas.show-reqs-active .card-requirements-row {
+  display: flex !important;
+}
+
+.card-requirements-row {
+  display: none;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 4px 6px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.task-filtered-hidden,
+.milestone-filtered-hidden,
+.arrow-filtered-hidden {
+  display: none !important;
+}
+
+.task-completed-hidden,
+.milestone-completed-hidden {
+  display: none !important;
 }
 
 /* Per-status card colors (set inline; see STATUS_STYLES in diagram.py). */
@@ -193,6 +353,74 @@
   text-overflow: ellipsis;
 }
 
+.milestone-node {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+}
+
+.milestone-diamond {
+  flex: 0 0 auto;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.12));
+}
+
+.milestone-caption {
+  margin-top: 4px;
+  max-width: 140px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.25;
+  color: #333;
+}
+
+.milestone-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.milestone-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.milestone-owner {
+  font-size: 10px;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-swatch-diamond {
+  background: transparent !important;
+  border: none !important;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.task-kind-milestone {
+  color: #5a6268;
+  font-size: 11px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.task-row-milestone .task-name-input {
+  font-weight: 600;
+}
+
 .diagram-svg {
   position: absolute;
   left: 0;
@@ -240,15 +468,12 @@
 
 /* The body's first column carries a 3px status bar; give the header the same
    invisible offset so the ID column stays aligned with the cells below it. */
-#task-table thead th:first-child { border-left: 3px solid transparent; }
+#task-table thead th.task-select-cell { border-left: 3px solid transparent; }
 
-/* A 3px status bar carries the state at a glance, so the Status dropdown does
-   not have to shout. border-left (not box-shadow) because Bootstrap paints its
-   row hover tint with an inset box-shadow on the very same cells.
-   Colours match STATUS_STYLES in app/diagram.py. */
-#task-table tr.status-not_started > td:first-child { border-left: 3px solid #6c757d; }
-#task-table tr.status-started    > td:first-child { border-left: 3px solid #f39c12; }
-#task-table tr.status-done       > td:first-child { border-left: 3px solid #27ae60; }
+/* A 3px status bar on the ID column (after the selection checkbox). */
+#task-table tr.status-not_started > td.task-code { border-left: 3px solid #6c757d; }
+#task-table tr.status-started    > td.task-code { border-left: 3px solid #f39c12; }
+#task-table tr.status-done       > td.task-code { border-left: 3px solid #27ae60; }
 
 #task-table .task-code {
   font-family: var(--bs-font-monospace);
@@ -354,6 +579,110 @@
    :hover rule would otherwise paint a box behind the ghost icon. */
 #task-table .btn-delete-task:hover { color: #dc3545; background: transparent; border-color: transparent; }
 
+/* Task tree: indent by dependency depth; hide collapsed subtrees. */
+#task-table tr.task-tree-hidden { display: none; }
+
+#task-table .task-tree-line {
+  display: flex;
+  align-items: center;
+  gap: .2rem;
+  padding-left: calc(var(--tree-depth, 0) * 1.15rem);
+}
+
+#task-table .task-tree-toggle-spacer {
+  display: inline-block;
+  width: 1.125rem;
+  flex-shrink: 0;
+}
+
+#task-table .task-tree-toggle {
+  color: #868e96;
+  line-height: 1;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
+#task-table .task-tree-toggle:hover { color: #495057; }
+
+#task-table .task-tree-chevron {
+  display: block;
+  transition: transform .15s ease;
+}
+
+#task-table .task-tree-toggle.is-collapsed .task-tree-chevron {
+  transform: rotate(-90deg);
+}
+
+#task-table .task-name-input { flex: 1; min-width: 0; }
+
+#task-table .task-select-cell {
+  width: 32px;
+  padding-left: .45rem;
+  padding-right: 0;
+  vertical-align: middle;
+}
+
+#task-table .task-select-checkbox,
+#task-table .task-select-all {
+  margin: 0;
+  cursor: pointer;
+}
+
+#task-table tr.task-row-selected > td {
+  background-color: #f4f8fc;
+}
+
+#task-table tr.task-row-selected:hover > td {
+  background-color: #eaf2fa;
+}
+
+#task-table .task-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.125rem;
+  flex-shrink: 0;
+  color: #adb5bd;
+  cursor: grab;
+  touch-action: none;
+}
+
+#task-table tr:hover .task-drag-handle,
+#task-table .task-drag-handle:focus-visible { color: #868e96; }
+
+#task-table .task-drag-handle:active { cursor: grabbing; }
+
+#task-table .task-row-errors {
+  padding-left: calc(var(--tree-depth, 0) * 1.15rem + 2.5rem);
+  margin-top: .15rem;
+  font-size: .75rem;
+}
+
+.task-tree-root-drop {
+  border: 1px dashed transparent;
+  border-radius: .25rem;
+  padding: .1rem .45rem;
+  transition: border-color .12s ease, background .12s ease;
+}
+
+.task-tree-root-drop.task-drop-active {
+  border-color: #86b7fe;
+  background: #f0f7ff;
+  color: #495057;
+}
+
+#task-table tr.task-grid-row.task-drop-active > td {
+  background: #f0f7ff;
+  box-shadow: inset 0 0 0 1px #86b7fe;
+}
+
+#task-table tr.task-grid-row.task-drop-invalid > td {
+  background: #fff5f5;
+  box-shadow: inset 0 0 0 1px #f1aeb5;
+}
+
+body.task-dragging #task-table .task-grid-row { cursor: default; }
+
 /* Quiet one-line stats in the Tasks panel header. */
 .panel-header { padding: .45rem .75rem; }
 
@@ -413,11 +742,23 @@
   min-width: 0;
 }
 
+#requirements-pane {
+  --requirement-column-code: 90px;
+  --requirement-column-title: minmax(140px, 1.1fr);
+  --requirement-column-description: minmax(150px, 1.3fr);
+  --requirement-column-priority: 118px;
+  --requirement-column-tasks: 88px;
+  --requirement-column-status: 92px;
+  --requirement-column-coverage: 56px;
+}
+
 .requirement-add-form,
 .requirement-row {
   display: grid;
-  grid-template-columns: 90px minmax(140px, 1.1fr) minmax(150px, 1.3fr) 118px
-                       56px minmax(150px, 1.3fr) 52px 34px;
+  grid-template-columns: var(--requirement-column-code) var(--requirement-column-title)
+                       var(--requirement-column-description) var(--requirement-column-priority)
+                       var(--requirement-column-tasks) var(--requirement-column-status)
+                       var(--requirement-column-coverage) 52px 34px;
   gap: .5rem;
   align-items: center;
 }
@@ -427,9 +768,27 @@
   margin-bottom: 1rem;
 }
 
+.requirements-search {
+  flex: 1 1 16rem;
+  max-width: 28rem;
+}
+
+.requirements-filter {
+  flex: 0 1 12rem;
+}
+
+.requirements-result-count {
+  align-self: end;
+  padding-bottom: .35rem;
+}
+
 .requirement-row {
   padding: .5rem 0;
   border-top: 1px solid #f0f2f5;
+}
+
+.requirement-row.requirement-filtered-hidden {
+  display: none;
 }
 
 .requirement-row > form {
@@ -450,6 +809,29 @@
   margin: 0;
 }
 
+.requirement-trace-tasks {
+  color: #495057;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.requirement-trace-status {
+  font-size: 12px;
+  color: #495057;
+  white-space: nowrap;
+}
+
+.requirement-trace-coverage {
+  text-align: center;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.requirement-row--not_covered .requirement-code {
+  opacity: .85;
+}
+
 .requirement-linked-tasks {
   color: #495057;
   font-size: 12px;
@@ -463,14 +845,76 @@
 }
 
 .requirements-header span:nth-child(4),
-.requirements-header span:nth-child(5) {
+.requirements-header span:nth-child(5),
+.requirements-header span:nth-child(6),
+.requirements-header span:nth-child(7) {
   white-space: nowrap;
+}
+
+.requirements-header > span {
+  position: relative;
+  min-width: 0;
+}
+
+.requirement-sort-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+}
+
+.requirement-sort-button:hover,
+.requirement-sort-button[aria-pressed="true"] {
+  color: #495057;
+}
+
+.requirement-sort-indicator {
+  margin-left: .1rem;
+}
+
+.requirements-resize-handle {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: -.25rem;
+  width: .5rem;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.requirements-resize-handle::after {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 3px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  content: "";
+}
+
+.requirements-resize-handle:hover::after,
+.requirements-resize-handle:focus-visible::after {
+  background: #0d6efd;
+}
+
+body.requirements-column-resizing,
+body.requirements-column-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 .requirements-header {
   display: grid;
-  grid-template-columns: 90px minmax(140px, 1.1fr) minmax(150px, 1.3fr) 118px
-                       56px minmax(150px, 1.3fr) 52px 34px;
+  grid-template-columns: var(--requirement-column-code) var(--requirement-column-title)
+                       var(--requirement-column-description) var(--requirement-column-priority)
+                       var(--requirement-column-tasks) var(--requirement-column-status)
+                       var(--requirement-column-coverage) 52px 34px;
   gap: .5rem;
   padding: .3rem 0;
   color: #8c959c;
@@ -478,6 +922,117 @@
   font-weight: 600;
   letter-spacing: .04em;
   text-transform: uppercase;
+}
+
+/* RAID log (Risks, Assumptions, Issues, Decisions) */
+.raid-log .raid-section {
+  margin-bottom: 2rem;
+}
+
+.raid-log .raid-section:last-child {
+  margin-bottom: 0;
+}
+
+.raid-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  margin-bottom: .65rem;
+  color: #343a40;
+}
+
+.raid-header {
+  gap: .5rem;
+  padding: .3rem 0;
+  color: #8c959c;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.raid-add-form,
+.raid-header,
+.raid-row {
+  display: grid;
+  gap: .5rem;
+  align-items: center;
+}
+
+.raid-row {
+  padding: .45rem 0;
+  border-top: 1px solid #f0f2f5;
+}
+
+.raid-row > .raid-update-form {
+  display: contents;
+}
+
+.raid-code {
+  color: #6c757d;
+  font-family: var(--bs-font-monospace);
+  font-size: 12px;
+}
+
+.raid-row textarea {
+  resize: vertical;
+}
+
+.raid-row--closed .raid-code,
+.raid-row--closed input,
+.raid-row--closed textarea,
+.raid-row--closed select {
+  opacity: .78;
+}
+
+.raid-add-form--risk,
+.raid-header--risk,
+.raid-row--risk {
+  grid-template-columns: minmax(160px, 1.4fr) 92px 92px auto;
+}
+
+.raid-header--risk,
+.raid-row--risk {
+  grid-template-columns: 72px minmax(140px, 1.1fr) 92px 92px 110px minmax(120px, 1.2fr)
+                       88px 52px 34px;
+}
+
+.raid-add-form--assumption,
+.raid-header--assumption,
+.raid-row--assumption {
+  grid-template-columns: minmax(160px, 1fr) minmax(140px, 1.2fr) auto;
+}
+
+.raid-header--assumption,
+.raid-row--assumption {
+  grid-template-columns: 72px minmax(140px, 1fr) minmax(150px, 1.3fr) 110px 88px 52px 34px;
+}
+
+.raid-add-form--issue,
+.raid-header--issue,
+.raid-row--issue {
+  grid-template-columns: minmax(160px, 1.4fr) 92px auto;
+}
+
+.raid-header--issue,
+.raid-row--issue {
+  grid-template-columns: 72px minmax(140px, 1.2fr) 92px 110px 100px 88px 52px 34px;
+}
+
+.raid-add-form--decision,
+.raid-header--decision,
+.raid-row--decision {
+  grid-template-columns: minmax(160px, 1.2fr) 118px auto;
+}
+
+.raid-header--decision,
+.raid-row--decision {
+  grid-template-columns: 72px minmax(120px, 1fr) 100px minmax(120px, 1fr) minmax(120px, 1fr)
+                       110px 88px 52px 34px;
+}
+
+.raid-empty {
+  padding: .35rem 0 .5rem;
 }
 
 /* The "+ add" button is outline by default and only fills in on hover, so it
@@ -512,4 +1067,701 @@
   border-top-left-radius: 0.375rem;
   border-top-right-radius: 0.375rem;
   background: #f8f9fa;
+}
+
+/* Plan workspace: task grid + diagram with optional detail panel */
+.plan-workspace {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.plan-workspace-main {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.task-detail-panel {
+  flex: 0 0 380px;
+  width: 380px;
+  max-width: 42vw;
+  border-left: 1px solid #e9ecef;
+  background: #fafbfc;
+  position: sticky;
+  top: 0.75rem;
+  align-self: flex-start;
+  max-height: calc(100vh - 6rem);
+  overflow-y: auto;
+}
+
+.task-detail-panel-inner {
+  padding: 1rem 1.1rem 1.25rem;
+}
+
+.task-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.task-detail-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.task-detail-code {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #868e96;
+}
+
+.task-detail-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #212529;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.task-detail-close {
+  font-size: 1.35rem;
+  line-height: 1;
+  color: #868e96;
+}
+
+.task-detail-rule {
+  margin: 0.65rem 0 1rem;
+  opacity: 0.35;
+}
+
+.task-detail-field {
+  margin-bottom: 1rem;
+}
+
+.task-detail-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #868e96;
+  margin-bottom: 0.35rem;
+}
+
+.task-detail-progress-bar {
+  height: 6px;
+  background: #e9ecef;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.task-detail-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: #3498db;
+  border-radius: 3px;
+}
+
+.task-detail-dep-link {
+  text-align: left;
+  text-decoration: none;
+}
+
+/* Task Detail Popup Modal scrollbar styling */
+#taskDetailModal .modal-dialog-scrollable .modal-content {
+  max-height: calc(100vh - 3.5rem);
+}
+
+.task-detail-modal-body {
+  overflow-y: auto !important;
+  max-height: calc(100vh - 12rem);
+  scrollbar-gutter: stable;
+}
+
+.task-detail-modal-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.task-detail-modal-body::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.task-detail-modal-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.task-detail-modal-body::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+#task-table tr.task-row-detail-active > td {
+  background-color: #eef6ff;
+}
+
+.project-overview-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background-color: #f8fafc;
+}
+
+.project-overview-card .card-body {
+  padding: 1.5rem;
+}
+
+.project-overview-rule {
+  margin: 0 0 1.25rem;
+  border: 0;
+  border-top: 1px solid #dee2e6;
+  opacity: 1;
+}
+
+/* ==========================================================================
+   Executive Overview Dashboard (Presentation & Stakeholder Friendly)
+   ========================================================================== */
+
+.overview-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  margin-bottom: 1.5rem;
+  transition: all 0.2s ease;
+}
+
+.overview-hero-on_track,
+.overview-hero-completed {
+  border-left: 6px solid #198754;
+}
+
+.overview-hero-at_risk {
+  border-left: 6px solid #f59e0b;
+}
+
+.overview-hero-critical {
+  border-left: 6px solid #dc3545;
+}
+
+.overview-hero-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1 1 500px;
+}
+
+.overview-hero-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.overview-health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.overview-health-on_track,
+.overview-health-completed {
+  background: #d1e7dd;
+  color: #0f5132;
+}
+
+.overview-health-at_risk {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.overview-health-critical {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.overview-health-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse-dot 2s infinite ease-in-out;
+}
+
+.overview-health-on_track .overview-health-dot,
+.overview-health-completed .overview-health-dot {
+  background-color: #198754;
+}
+
+.overview-health-at_risk .overview-health-dot {
+  background-color: #f59e0b;
+}
+
+.overview-health-critical .overview-health-dot {
+  background-color: #dc3545;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.9); opacity: 0.75; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.75; }
+}
+
+.overview-hero-summary {
+  font-size: 0.95rem;
+  color: #334155;
+  margin-bottom: 0;
+  font-weight: 500;
+}
+
+.overview-hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  color: #64748b;
+}
+
+.overview-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.overview-icon {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.overview-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.overview-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 500;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  transition: all 0.15s ease-in-out;
+}
+
+.overview-jump-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* KPI Scorecard Grid */
+.overview-kpi-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.overview-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06) !important;
+}
+
+.overview-card-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #64748b;
+}
+
+.overview-card-icon-pill {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overview-kpi-number {
+  font-size: 1.85rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.overview-stacked-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #e2e8f0;
+}
+
+.overview-stacked-bar .bar-done {
+  background-color: #198754;
+  transition: width 0.3s ease;
+}
+
+.overview-stacked-bar .bar-started {
+  background-color: #0d6efd;
+  transition: width 0.3s ease;
+}
+
+.overview-stacked-bar .bar-not-started {
+  background-color: #cbd5e1;
+  transition: width 0.3s ease;
+}
+
+.overview-stacked-bar .bar-empty {
+  background-color: #e2e8f0;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.status-dot.dot-done {
+  background-color: #198754;
+}
+
+.status-dot.dot-started {
+  background-color: #0d6efd;
+}
+
+.status-dot.dot-not-started {
+  background-color: #cbd5e1;
+}
+
+/* Lower Section Panels */
+.overview-panel-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.overview-milestones-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.overview-milestone-item {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  transition: all 0.15s ease;
+}
+
+.overview-milestone-item:hover {
+  background: #f8fafc;
+}
+
+.overview-milestone-item.milestone-next {
+  border-color: #0d6efd;
+  background: #f0f7ff;
+  box-shadow: 0 2px 8px rgba(13, 110, 253, 0.08);
+}
+
+.overview-milestone-item.milestone-done {
+  opacity: 0.9;
+  background: #fafbfc;
+}
+
+.overview-milestone-item.milestone-overdue {
+  border-color: #fca5a5;
+  background: #fff5f5;
+}
+
+.milestone-indicator {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.milestone-badge-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.milestone-badge-dot.pulse-indicator {
+  position: relative;
+}
+
+.milestone-badge-dot.pulse-indicator .dot-inner {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.overview-breakdown-card {
+  background: #f8fafc;
+}
+
+.overview-talking-points {
+  background: #ffffff;
+}
+
+.overview-talking-points li {
+  line-height: 1.45;
+}
+
+/* Fallback & Legacy Overview Classes */
+.overview-block {
+  margin-bottom: 1.35rem;
+}
+
+.overview-block:last-child {
+  margin-bottom: 0;
+}
+
+.overview-heading {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6c757d;
+  margin-bottom: 0.5rem;
+}
+
+.overview-progress {
+  height: 14px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 420px;
+}
+
+.overview-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #198754 0%, #20c997 100%);
+  border-radius: 4px 0 0 4px;
+  transition: width 0.25s ease;
+}
+
+.overview-progress-label {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin-top: 0.35rem;
+  color: #212529;
+}
+
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.35rem 1.25rem;
+  margin: 0;
+}
+
+.overview-stats > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 14px;
+}
+
+.overview-stats dt {
+  margin: 0;
+  font-weight: 400;
+  color: #495057;
+}
+
+.overview-stats dd {
+  margin: 0;
+  font-weight: 600;
+  color: #212529;
+}
+
+.overview-muted {
+  font-size: 13px;
+  color: #868e96;
+}
+
+.overview-milestone-next {
+  font-size: 14px;
+}
+
+.overview-milestone-date {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.overview-schedule-warn {
+  color: #c0392b;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Schedule Baseline & Variance styles */
+.milestone-variance-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 1.1;
+  margin-left: 2px;
+}
+
+.milestone-variance-tag.tag-delay,
+.card-variance-tag.tag-delay {
+  background: #fee2e2;
+  color: #dc3545;
+  border: 1px solid #fca5a5;
+}
+
+.milestone-variance-tag.tag-ahead,
+.card-variance-tag.tag-ahead {
+  background: #d1e7dd;
+  color: #0f5132;
+  border: 1px solid #a3cfbb;
+}
+
+.card-variance-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 3px;
+}
+
+.legend-swatch-variance {
+  background: #fee2e2;
+  border-color: #dc3545;
+  color: #dc3545;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Projects Dashboard (Portfolio View)
+   ========================================================================== */
+
+.portfolio-kpi-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.portfolio-kpi-num {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #1e293b;
+}
+
+.portfolio-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  position: relative;
+}
+
+.portfolio-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  border-color: #cbd5e1;
+}
+
+.portfolio-card.status-on_track,
+.portfolio-card.status-completed {
+  border-left: 5px solid #198754;
+}
+
+.portfolio-card.status-at_risk {
+  border-left: 5px solid #f59e0b;
+}
+
+.portfolio-card.status-critical {
+  border-left: 5px solid #dc3545;
+}
+
+.project-card-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+  transition: color 0.15s ease;
+}
+
+.project-card-title:hover {
+  color: #0d6efd;
+}
+
+.project-card-schedule-strip {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+}
+
+.project-card-gate {
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
+}
+
+.project-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.project-card-footer {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 0.85rem;
+  margin-top: 0.85rem;
+}
+
+@media (max-width: 991.98px) {
+  .plan-workspace {
+    flex-direction: column;
+  }
+
+  .task-detail-panel {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
+    position: static;
+    max-height: none;
+    border-left: 0;
+    border-top: 1px solid #e9ecef;
+  }
 }

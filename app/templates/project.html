@@ -4,7 +4,7 @@
 <link href="{{ url_for('static', filename='vendor/quill.snow.css') }}" rel="stylesheet">
 {% endblock %}
 {% block navbar_right %}
-<a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-light">&larr; Back to projects</a>
+<a href="{{ url_for('main.index') }}" class="btn btn-sm btn-outline-light">&larr; Projects Dashboard</a>
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -17,31 +17,57 @@
 
 <ul class="nav nav-tabs project-tabs mb-4" id="project-tabs" role="tablist">
   <li class="nav-item" role="presentation">
-    <button class="nav-link active" id="plan-tab" data-bs-toggle="tab"
-            data-bs-target="#plan-pane" type="button" role="tab"
-            aria-controls="plan-pane" aria-selected="true">Tasks &amp; diagram</button>
+    <button class="nav-link active" id="overview-tab" data-bs-toggle="tab"
+            data-bs-target="#overview-pane" type="button" role="tab"
+            aria-controls="overview-pane" aria-selected="true">Overview</button>
   </li>
   <li class="nav-item" role="presentation">
-    <button class="nav-link" id="settings-tab" data-bs-toggle="tab"
-            data-bs-target="#settings-pane" type="button" role="tab"
-            aria-controls="settings-pane" aria-selected="false">Project settings</button>
+    <button class="nav-link" id="tasks-tab" data-bs-toggle="tab"
+            data-bs-target="#tasks-pane" type="button" role="tab"
+            aria-controls="tasks-pane" aria-selected="false">Tasks</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="diagram-tab" data-bs-toggle="tab"
+            data-bs-target="#diagram-pane" type="button" role="tab"
+            aria-controls="diagram-pane" aria-selected="false">Diagram</button>
   </li>
   <li class="nav-item" role="presentation">
     <button class="nav-link" id="requirements-tab" data-bs-toggle="tab"
             data-bs-target="#requirements-pane" type="button" role="tab"
-            aria-controls="requirements-pane" aria-selected="false">Business requirements</button>
+            aria-controls="requirements-pane" aria-selected="false">Requirements</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="raid-tab" data-bs-toggle="tab"
+            data-bs-target="#raid-pane" type="button" role="tab"
+            aria-controls="raid-pane" aria-selected="false">RAID</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="settings-tab" data-bs-toggle="tab"
+            data-bs-target="#settings-pane" type="button" role="tab"
+            aria-controls="settings-pane" aria-selected="false">Settings</button>
   </li>
 </ul>
 
 <div class="tab-content" id="project-tab-content">
-<div class="tab-pane fade show active" id="plan-pane" role="tabpanel"
-     aria-labelledby="plan-tab" tabindex="0">
-<div class="row g-4">
-
-  <div class="col-12">
+<div class="tab-pane fade show active" id="overview-pane" role="tabpanel"
+     aria-labelledby="overview-tab" tabindex="0">
+  <div class="card shadow-sm project-overview-card">
+    <div class="card-body">
+      {% include "partials/project_overview.html" %}
+    </div>
+  </div>
+</div>
+<div class="tab-pane fade" id="tasks-pane" role="tabpanel"
+     aria-labelledby="tasks-tab" tabindex="0">
+<div class="plan-workspace">
+  <div class="plan-workspace-main">
     <div class="card shadow-sm">
-      <div class="card-header panel-header d-flex justify-content-between align-items-center gap-3">
-        <strong>Tasks</strong>
+      <div class="card-header panel-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <strong>Tasks</strong>
+          <span id="task-tree-root-drop" class="task-tree-root-drop text-muted small"
+                title="Drop selected tasks here to remove their predecessors">Drop here for no predecessor</span>
+        </div>
         {# One quiet line instead of boxed pills: the figures stay, the frames go.
            wd = working days (5-day week, Sat/Sun skipped) - see the tooltip. #}
         <div class="d-flex align-items-center justify-content-center gap-2 flex-grow-1 text-muted small tasks-stats"
@@ -67,6 +93,14 @@
               hx-swap="innerHTML">
           <button class="btn btn-sm btn-success btn-add-task" type="submit">+ Add task</button>
         </form>
+        <form method="POST" action="{{ url_for('main.create_task', id=project.id) }}"
+              hx-post="{{ url_for('main.create_task', id=project.id) }}"
+              hx-target="#task-table-body"
+              hx-swap="innerHTML"
+              class="d-inline ms-1">
+          <input type="hidden" name="kind" value="milestone">
+          <button class="btn btn-sm btn-outline-success btn-add-milestone" type="submit">+ Add milestone</button>
+        </form>
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
@@ -75,20 +109,26 @@
           <table class="table table-hover mb-0 align-middle" id="task-table">
             <thead>
               <tr>
+                <th class="task-select-cell" style="width:32px">
+                  <input type="checkbox" class="form-check-input task-select-all"
+                         aria-label="Select all visible tasks" title="Select all visible tasks">
+                </th>
                 <th style="width:52px">ID</th>
-                <th>Task name</th>
+                <th title="Select tasks with the checkbox; drag the grip to move the selection">Task name</th>
                 <th style="width:170px" title="Choose the task's configured swimlane.">Lane</th>
                 <th style="width:118px" title="Working day - a date entered on a weekend moves to the next Monday">Start</th>
                 <th style="width:74px" title="Number of working days (Monday to Friday)">Days</th>
                 <th style="width:118px" title="First day of the next task; Saturday and Sunday are skipped">End</th>
                 <th>Responsible</th>
                 <th>BR</th>
-                <th style="width:130px">Predecessors</th>
                 <th style="width:126px">Status</th>
                 <th style="width:36px"><span class="visually-hidden">Actions</span></th>
               </tr>
             </thead>
             <tbody id="task-table-body"
+                   data-project-id="{{ project.id }}"
+                   data-predecessor-url="{{ url_for('main.set_task_predecessors', task_id=0) }}"
+                   data-bulk-predecessor-url="{{ url_for('main.set_tasks_predecessors', id=project.id) }}"
                    hx-trigger="refreshGrid from:body"
                    hx-get="{{ url_for('main.project', id=project.id) }}"
                    hx-target="#task-table-body"
@@ -105,26 +145,167 @@
       </div>
     </div>
   </div>
+</div>
+</div>
 
-  <div class="col-12">
-    <div class="card shadow-sm">
-      <div class="card-header panel-header d-flex justify-content-between align-items-center">
-        <strong>Diagram</strong>
+<!-- Task Detail Popup Modal -->
+<div class="modal fade" id="taskDetailModal" tabindex="-1" aria-labelledby="taskDetailModalLabel" aria-hidden="true"
+     data-empty-url="{{ url_for('main.task_detail_empty', id=project.id) }}"
+     data-detail-url="{{ url_for('main.task_detail', task_id=0) }}">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content overflow-hidden" id="task-detail-modal-content">
+      <div class="p-4 text-center text-muted">Loading task details…</div>
+    </div>
+  </div>
+</div>
+
+<div class="tab-pane fade" id="diagram-pane" role="tabpanel"
+     aria-labelledby="diagram-tab" tabindex="0">
+  <div class="card shadow-sm">
+    <div class="card-header panel-header d-flex justify-content-between align-items-center">
+      <strong>Diagram</strong>
+      <div class="d-flex gap-2">
+        <button id="btn-refresh-diagram" type="button"
+                class="btn btn-sm btn-outline-secondary"
+                hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
+                hx-target="#diagram-container"
+                hx-swap="innerHTML"
+                title="Reload the swimlane diagram">Refresh</button>
         <button id="btn-export-png" type="button" disabled
                 class="btn btn-sm btn-outline-secondary"
                 data-filename="{{ project.name }}" title="Download the diagram as a PNG image">Export Image</button>
       </div>
-      <div class="card-body p-0">
-        <div id="diagram-container"
-             hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
-             hx-trigger="load, every 30s, refreshDiagram from:body"
-             hx-swap="innerHTML">
-          <div class="p-4 text-muted">Loading diagram…</div>
-        </div>
+    </div>
+    <div class="card-body p-0">
+      <div id="diagram-container"
+           hx-get="{{ url_for('main.diagram_partial', id=project.id) }}"
+           hx-trigger="load, every 30s, refreshDiagram from:body"
+           hx-swap="innerHTML">
+        <div class="p-4 text-muted">Loading diagram…</div>
       </div>
     </div>
   </div>
 </div>
+
+<div class="tab-pane fade" id="requirements-pane" role="tabpanel"
+     aria-labelledby="requirements-tab" tabindex="0">
+  <div class="card shadow-sm">
+    <div class="card-header panel-header"><strong>Business requirements</strong></div>
+    <div class="card-body">
+      <p class="small text-muted mb-2 requirements-trace-intro">
+        Traceability matrix — link tasks from the task grid (BR column). Coverage updates from task status.
+      </p>
+      <div class="requirements-coverage-legend small text-muted mb-3">
+        <span class="me-3"><span aria-hidden="true">🟥</span> Not covered</span>
+        <span class="me-3"><span aria-hidden="true">🟧</span> Planned</span>
+        <span class="me-3"><span aria-hidden="true">🟦</span> In progress</span>
+        <span><span aria-hidden="true">🟩</span> Implemented</span>
+      </div>
+      <div class="requirements-controls d-flex flex-wrap gap-2 mb-3">
+        <div class="requirements-search">
+          <label class="form-label small mb-1" for="requirements-search">Search requirements</label>
+          <input id="requirements-search" class="form-control form-control-sm" type="search"
+                 placeholder="Code, title, description, or task">
+        </div>
+        <div class="requirements-filter">
+          <label class="form-label small mb-1" for="requirements-filter-priority">Priority</label>
+          <select id="requirements-filter-priority" class="form-select form-select-sm">
+            <option value="all">All priorities</option>
+            {% for value, label in moscow_choices %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="requirements-filter">
+          <label class="form-label small mb-1" for="requirements-filter-coverage">Coverage</label>
+          <select id="requirements-filter-coverage" class="form-select form-select-sm">
+            <option value="all">All coverage</option>
+            <option value="not_covered">Not covered</option>
+            <option value="planned">Planned</option>
+            <option value="in_progress">In progress</option>
+            <option value="implemented">Implemented</option>
+          </select>
+        </div>
+        <span id="requirements-result-count" class="requirements-result-count small text-muted ms-auto"
+              role="status" aria-live="polite"></span>
+      </div>
+      <form class="requirement-add-form" method="POST"
+            action="{{ url_for('main.manage_requirements', id=project.id) }}"
+            hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
+            data-requirement-add="true"
+            hx-target="#requirements-list" hx-swap="innerHTML">
+        <input type="hidden" name="action" value="add">
+        <input type="hidden" name="partial" value="requirements">
+        <input id="new-requirement-title" class="form-control form-control-sm" name="title"
+               placeholder="New requirement title" required>
+        <textarea class="form-control form-control-sm" name="description" rows="1"
+                  placeholder="Description"></textarea>
+        <select class="form-select form-select-sm" name="moscow" aria-label="MoSCoW category">
+          {% for value, label in moscow_choices %}
+          <option value="{{ value }}"{% if value == 'must' %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-sm btn-outline-success" type="submit">Add requirement</button>
+      </form>
+      <div class="requirements-header">
+        <span><button type="button" class="requirement-sort-button" data-sort="code"
+                      aria-pressed="true">Requirement <span class="requirement-sort-indicator" aria-hidden="true">↑</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="code"
+                role="separator" aria-orientation="vertical" aria-label="Resize Requirement column"
+                aria-valuemin="64" aria-valuemax="240" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="title"
+                      aria-pressed="false">Title <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="title"
+                role="separator" aria-orientation="vertical" aria-label="Resize Title column"
+                aria-valuemin="140" aria-valuemax="480" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="description"
+                      aria-pressed="false">Description <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="description"
+                role="separator" aria-orientation="vertical" aria-label="Resize Description column"
+                aria-valuemin="150" aria-valuemax="600" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="priority"
+                      aria-pressed="false">Priority <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="priority"
+                role="separator" aria-orientation="vertical" aria-label="Resize Priority column"
+                aria-valuemin="95" aria-valuemax="240" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="tasks"
+                      aria-pressed="false">Tasks <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="tasks"
+                role="separator" aria-orientation="vertical" aria-label="Resize Tasks column"
+                aria-valuemin="64" aria-valuemax="240" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="status"
+                      aria-pressed="false">Status <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="status"
+                role="separator" aria-orientation="vertical" aria-label="Resize Status column"
+                aria-valuemin="75" aria-valuemax="240" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="coverage"
+                      aria-pressed="false">Coverage <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="coverage"
+                role="separator" aria-orientation="vertical" aria-label="Resize Coverage column"
+                aria-valuemin="52" aria-valuemax="160" tabindex="0"></span></span>
+        <span></span><span></span>
+      </div>
+      <div id="requirements-list"
+           hx-get="{{ url_for('main.requirements_list_partial', id=project.id) }}"
+           hx-trigger="refreshRequirements from:body"
+           hx-swap="innerHTML">
+        {% include "partials/requirements.html" %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tab-pane fade" id="raid-pane" role="tabpanel"
+     aria-labelledby="raid-tab" tabindex="0">
+  <div class="card shadow-sm">
+    <div class="card-header panel-header">
+      <strong>RAID log</strong>
+      <span class="text-muted small ms-2">Risks, Assumptions, Issues, Decisions</span>
+    </div>
+    <div class="card-body">
+      {% include "partials/raid_pane.html" %}
+    </div>
+  </div>
 </div>
 
 <div class="tab-pane fade" id="settings-pane" role="tabpanel"
@@ -148,6 +329,62 @@
             </div>
             <button class="btn btn-primary" type="submit">Save details</button>
           </form>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-4">
+        <div class="card-header panel-header d-flex justify-content-between align-items-center">
+          <strong>Schedule baseline</strong>
+          {% if project.baseline_set_at %}
+          <span class="badge bg-success-subtle text-success">Active</span>
+          {% else %}
+          <span class="badge bg-secondary-subtle text-secondary">None</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">
+            Capture a schedule snapshot to establish planned milestone targets and measure working-day schedule variance.
+          </p>
+          {% if project.baseline_set_at %}
+          <div class="mb-3 small">
+            Baseline captured: <strong>{{ project.baseline_set_at.strftime("%d %b %Y, %H:%M UTC") }}</strong>
+          </div>
+          {% endif %}
+          <div class="d-flex gap-2">
+            <form method="POST" action="{{ url_for('main.manage_baseline', id=project.id) }}">
+              <input type="hidden" name="action" value="set">
+              <input type="hidden" name="tab" value="settings">
+              <button class="btn btn-outline-primary btn-sm" type="submit">
+                {% if project.baseline_set_at %}Update baseline (Re-baseline){% else %}Set baseline{% endif %}
+              </button>
+            </form>
+            {% if project.baseline_set_at %}
+            <form method="POST" action="{{ url_for('main.manage_baseline', id=project.id) }}"
+                  onsubmit="return confirm('Clear baseline dates?');">
+              <input type="hidden" name="action" value="clear">
+              <input type="hidden" name="tab" value="settings">
+              <button class="btn btn-outline-danger btn-sm" type="submit">Clear baseline</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mt-4">
+        <div class="card-header panel-header d-flex justify-content-between align-items-center">
+          <strong>Calendar &amp; Working days</strong>
+          <span class="text-muted small">PERT schedule calendar</span>
+        </div>
+        <div class="card-body">
+          <h6 class="fw-bold small text-uppercase text-secondary mb-2">Working days</h6>
+          <p class="text-muted small mb-3">Tasks and durations only count on selected working days.</p>
+          {% include "partials/settings_workdays.html" %}
+
+          <hr class="my-4">
+
+          <h6 class="fw-bold small text-uppercase text-secondary mb-2">Holidays</h6>
+          <p class="text-muted small mb-3">Non-working days skipped by the scheduling engine.</p>
+          {% include "partials/settings_holidays.html" %}
         </div>
       </div>
     </div>
@@ -213,40 +450,6 @@
     </div>
   </div>
 </div>
-
-<div class="tab-pane fade" id="requirements-pane" role="tabpanel"
-     aria-labelledby="requirements-tab" tabindex="0">
-  <div class="card shadow-sm">
-    <div class="card-header panel-header"><strong>Business requirements</strong></div>
-    <div class="card-body">
-      <form class="requirement-add-form" method="POST"
-            action="{{ url_for('main.manage_requirements', id=project.id) }}"
-            hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
-            data-requirement-add="true"
-            hx-target="#requirements-list" hx-swap="innerHTML">
-        <input type="hidden" name="action" value="add">
-        <input type="hidden" name="partial" value="requirements">
-        <input id="new-requirement-title" class="form-control form-control-sm" name="title"
-               placeholder="New requirement title" required>
-        <textarea class="form-control form-control-sm" name="description" rows="1"
-                  placeholder="Description"></textarea>
-        <select class="form-select form-select-sm" name="moscow" aria-label="MoSCoW category">
-          {% for value, label in moscow_choices %}
-          <option value="{{ value }}"{% if value == 'must' %} selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn btn-sm btn-outline-success" type="submit">Add requirement</button>
-      </form>
-      <div class="requirements-header">
-        <span>ID</span><span>Title</span><span>Description</span><span>MoSCoW</span>
-        <span>Covered</span><span>Linked tasks</span><span></span><span></span>
-      </div>
-      <div id="requirements-list">
-        {% include "partials/requirements.html" %}
-      </div>
-    </div>
-  </div>
-</div>
 </div>
 </div>
 
@@ -256,22 +459,37 @@
 (function () {
   const tabButtons = document.querySelectorAll('#project-tabs [data-bs-toggle="tab"]');
   const tabForHash = {
-    '#settings': '#settings-tab',
+    '#overview': '#overview-tab',
+    '#tasks': '#tasks-tab',
+    '#diagram': '#diagram-tab',
     '#requirements': '#requirements-tab',
-    '#plan': '#plan-tab'
+    '#raid': '#raid-tab',
+    '#settings': '#settings-tab',
+    '#plan': '#tasks-tab'
   };
 
   function activateFromHash() {
-    const selector = tabForHash[window.location.hash] || '#plan-tab';
+    const hash = window.location.hash;
+    const selector = tabForHash[hash] || '#overview-tab';
     const button = document.querySelector(selector);
     if (button) bootstrap.Tab.getOrCreateInstance(button).show();
   }
 
   tabButtons.forEach(function (button) {
     button.addEventListener('shown.bs.tab', function (event) {
-      const hash = event.target.id === 'settings-tab'
+      const hash = event.target.id === 'overview-tab'
+        ? '#overview'
+        : event.target.id === 'tasks-tab'
+        ? '#tasks'
+        : event.target.id === 'diagram-tab'
+        ? '#diagram'
+        : event.target.id === 'requirements-tab'
+        ? '#requirements'
+        : event.target.id === 'raid-tab'
+        ? '#raid'
+        : event.target.id === 'settings-tab'
         ? '#settings'
-        : event.target.id === 'requirements-tab' ? '#requirements' : '#plan';
+        : '#overview';
       history.replaceState(null, '', window.location.pathname + window.location.search + hash);
     });
   });
@@ -290,7 +508,11 @@ document.body.addEventListener('htmx:afterRequest', function (event) {
     ? 'new-member-name'
     : form.dataset.laneAdd === 'true'
       ? 'new-lane-name'
-      : form.dataset.requirementAdd === 'true' ? 'new-requirement-title' : null;
+      : form.dataset.requirementAdd === 'true'
+        ? 'new-requirement-title'
+        : form.dataset.raidAdd
+          ? ('new-raid-title-' + form.dataset.raidAdd)
+          : null;
   if (!inputId) return;
   form.reset();
   const input = document.getElementById(inputId);
@@ -308,6 +530,75 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
     evt.detail.isError = false;
   }
 });
+
+// Task detail modal popup: row or diagram click opens popup; keep row highlight in sync.
+(function () {
+  function detailUrl(taskId) {
+    var modal = document.getElementById('taskDetailModal');
+    var template = modal && modal.dataset.detailUrl;
+    if (!template) return '/tasks/' + taskId + '/detail';
+    return template.replace('/tasks/0/', '/tasks/' + taskId + '/');
+  }
+
+  function highlightTaskRow(taskId) {
+    document.querySelectorAll('#task-table-body tr.task-grid-row').forEach(function (row) {
+      var active = taskId && row.dataset.taskId === String(taskId);
+      row.classList.toggle('task-row-detail-active', active);
+    });
+  }
+
+  function openTaskDetailModal(taskId) {
+    if (!taskId) return;
+    highlightTaskRow(taskId);
+    var modalEl = document.getElementById('taskDetailModal');
+    if (!modalEl) return;
+    var modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalInstance.show();
+
+    if (typeof htmx !== 'undefined') {
+      htmx.ajax('GET', detailUrl(taskId), {
+        target: '#task-detail-modal-content',
+        swap: 'innerHTML'
+      });
+    }
+  }
+
+  var tbody = document.getElementById('task-table-body');
+  if (tbody) {
+    tbody.addEventListener('click', function (evt) {
+      if (evt.target.closest(
+        'input, select, textarea, .task-drag-handle, .task-select-checkbox, .task-tree-toggle, .task-open-detail, a, button.btn-delete-task'
+      )) return;
+      var row = evt.target.closest('tr.task-grid-row');
+      if (!row) return;
+      var btn = row.querySelector('.task-open-detail');
+      if (btn) btn.click();
+    });
+  }
+
+  // Open modal when clicking on task cards or milestone nodes in the diagram
+  document.body.addEventListener('click', function (evt) {
+    var card = evt.target.closest('.diagram-canvas .task-card, .diagram-canvas .milestone-node');
+    if (!card) return;
+    if (evt.target.closest('button, a, input, select')) return;
+    var codeEl = card.querySelector('.card-cell, .milestone-name');
+    var taskCode = card.dataset.taskCode || (codeEl ? codeEl.textContent.trim() : null);
+    // Find matching row in task table to get the numeric task ID
+    var matchingRow = taskCode ? document.querySelector('#task-table-body tr.task-grid-row[data-task-code="' + taskCode + '"]') : null;
+    var taskId = matchingRow ? matchingRow.dataset.taskId : null;
+    if (taskId) {
+      openTaskDetailModal(taskId);
+    }
+  });
+
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    if (evt.detail.target.id === 'task-detail-modal-content') {
+      var inner = evt.detail.target.querySelector('[data-task-id]');
+      highlightTaskRow(inner ? inner.dataset.taskId : null);
+      return;
+    }
+  });
+})();
 
 // Native <select> cannot show different labels when open vs closed. Expand each
 // BR option to "ID — title" while the list is open; show only the BR ID in the grid.
@@ -352,6 +643,351 @@ document.body.addEventListener('htmx:beforeSwap', function (evt) {
     var target = evt.detail.target;
     if (target.id === 'task-table-body' || target.querySelector('.task-br-select')) {
       initBrSelects(target);
+    }
+  });
+})();
+
+// Collapse/expand task subtrees in the grid (state kept per project in sessionStorage).
+(function () {
+  function storageKey(projectId) {
+    return 'pertTaskTreeCollapsed:' + projectId;
+  }
+
+  function readCollapsed(projectId) {
+    try {
+      return new Set(JSON.parse(sessionStorage.getItem(storageKey(projectId)) || '[]'));
+    } catch (err) {
+      return new Set();
+    }
+  }
+
+  function writeCollapsed(projectId, collapsed) {
+    sessionStorage.setItem(storageKey(projectId), JSON.stringify(Array.from(collapsed)));
+  }
+
+  function tbodyFrom(root) {
+    if (!root) return null;
+    if (root.id === 'task-table-body') return root;
+    if (root.querySelector) return root.querySelector('#task-table-body');
+    return null;
+  }
+
+  function applyTaskTree(tbody) {
+    if (!tbody || !tbody.dataset.projectId) return;
+    var collapsed = readCollapsed(tbody.dataset.projectId);
+    tbody.querySelectorAll('tr[data-tree-ancestors]').forEach(function (row) {
+      var ancestors = (row.dataset.treeAncestors || '').split(',').filter(Boolean);
+      var hidden = ancestors.some(function (code) { return collapsed.has(code); });
+      row.classList.toggle('task-tree-hidden', hidden);
+    });
+    tbody.querySelectorAll('.task-tree-toggle').forEach(function (btn) {
+      var code = btn.dataset.taskCode;
+      var isCollapsed = collapsed.has(code);
+      btn.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+      btn.classList.toggle('is-collapsed', isCollapsed);
+    });
+  }
+
+  function refreshTaskTree(root) {
+    var tbody = tbodyFrom(root) || document.getElementById('task-table-body');
+    applyTaskTree(tbody);
+  }
+
+  document.body.addEventListener('click', function (evt) {
+    var btn = evt.target.closest('.task-tree-toggle');
+    if (!btn) return;
+    var tbody = btn.closest('#task-table-body');
+    if (!tbody || !tbody.dataset.projectId) return;
+    evt.preventDefault();
+    var collapsed = readCollapsed(tbody.dataset.projectId);
+    var code = btn.dataset.taskCode;
+    if (collapsed.has(code)) collapsed.delete(code);
+    else collapsed.add(code);
+    writeCollapsed(tbody.dataset.projectId, collapsed);
+    applyTaskTree(tbody);
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { refreshTaskTree(document); });
+  } else {
+    refreshTaskTree(document);
+  }
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    if (evt.detail.target.id === 'task-table-body') {
+      refreshTaskTree(evt.detail.target);
+    }
+  });
+})();
+
+// Task row multi-select (persisted per project; used with group drag-and-drop).
+(function () {
+  function selectionKey(projectId) {
+    return 'pertTaskSelect:' + projectId;
+  }
+
+  function readSelection(projectId) {
+    try {
+      return new Set(JSON.parse(sessionStorage.getItem(selectionKey(projectId)) || '[]'));
+    } catch (err) {
+      return new Set();
+    }
+  }
+
+  function writeSelection(projectId, selected) {
+    sessionStorage.setItem(selectionKey(projectId), JSON.stringify(Array.from(selected)));
+  }
+
+  function tbodyFrom(root) {
+    if (!root) return null;
+    if (root.id === 'task-table-body') return root;
+    if (root.querySelector) return root.querySelector('#task-table-body');
+    return null;
+  }
+
+  function visibleRows(tbody) {
+    return Array.prototype.filter.call(
+      tbody.querySelectorAll('tr.task-grid-row'),
+      function (row) { return !row.classList.contains('task-tree-hidden'); }
+    );
+  }
+
+  function syncRowSelectedClass(row, selected) {
+    var id = row.dataset.taskId;
+    row.classList.toggle('task-row-selected', selected.has(id));
+    var cb = row.querySelector('.task-select-checkbox');
+    if (cb) cb.checked = selected.has(id);
+  }
+
+  function applySelection(tbody) {
+    if (!tbody || !tbody.dataset.projectId) return;
+    var selected = readSelection(tbody.dataset.projectId);
+    tbody.querySelectorAll('tr.task-grid-row').forEach(function (row) {
+      syncRowSelectedClass(row, selected);
+    });
+    var selectAll = document.querySelector('#task-table .task-select-all');
+    if (selectAll) {
+      var rows = visibleRows(tbody);
+      var allChecked = rows.length > 0 && rows.every(function (row) {
+        return selected.has(row.dataset.taskId);
+      });
+      selectAll.checked = allChecked;
+      selectAll.indeterminate = !allChecked && rows.some(function (row) {
+        return selected.has(row.dataset.taskId);
+      });
+    }
+  }
+
+  function toggleTaskSelection(tbody, taskId, checked) {
+    var selected = readSelection(tbody.dataset.projectId);
+    if (checked) selected.add(taskId);
+    else selected.delete(taskId);
+    writeSelection(tbody.dataset.projectId, selected);
+    applySelection(tbody);
+  }
+
+  document.body.addEventListener('change', function (evt) {
+    var tbody = tbodyFrom(document.getElementById('task-table-body'));
+    if (!tbody || !tbody.dataset.projectId) return;
+
+    if (evt.target.classList.contains('task-select-all')) {
+      var selected = readSelection(tbody.dataset.projectId);
+      visibleRows(tbody).forEach(function (row) {
+        if (evt.target.checked) selected.add(row.dataset.taskId);
+        else selected.delete(row.dataset.taskId);
+      });
+      writeSelection(tbody.dataset.projectId, selected);
+      applySelection(tbody);
+      return;
+    }
+
+    if (evt.target.classList.contains('task-select-checkbox')) {
+      toggleTaskSelection(tbody, evt.target.dataset.taskId, evt.target.checked);
+    }
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      applySelection(document.getElementById('task-table-body'));
+    });
+  } else {
+    applySelection(document.getElementById('task-table-body'));
+  }
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    if (evt.detail.target.id === 'task-table-body') {
+      applySelection(evt.detail.target);
+    }
+  });
+
+  window.pertTaskSelection = {
+    readForTbody: function (tbody) {
+      if (!tbody || !tbody.dataset.projectId) return new Set();
+      return readSelection(tbody.dataset.projectId);
+    },
+    tasksForDrag: function (tbody, draggedRow) {
+      var selected = readSelection(tbody.dataset.projectId);
+      var draggedId = draggedRow.dataset.taskId;
+      var tasks = [];
+      tbody.querySelectorAll('tr.task-grid-row').forEach(function (row) {
+        if (selected.has(row.dataset.taskId)) {
+          tasks.push({ id: row.dataset.taskId, code: row.dataset.taskCode });
+        }
+      });
+      if (tasks.length === 0 || !selected.has(draggedId)) {
+        return [{ id: draggedId, code: draggedRow.dataset.taskCode }];
+      }
+      return tasks;
+    }
+  };
+})();
+
+// Drag task(s) onto another to set finish-to-start dependency (replaces predecessors).
+(function () {
+  var dragState = null;
+
+  function predecessorUrl(tbody, taskId) {
+    var template = tbody && tbody.dataset.predecessorUrl;
+    if (!template) return '/tasks/' + taskId + '/predecessors';
+    return template.replace('/tasks/0/', '/tasks/' + taskId + '/');
+  }
+
+  function ancestorCodes(row) {
+    return (row.dataset.treeAncestors || '').split(',').filter(Boolean);
+  }
+
+  function canDropOnRow(dragState, targetRow) {
+    if (!dragState || !targetRow || !dragState.tasks.length) return false;
+    var targetCode = targetRow.dataset.taskCode;
+    var targetId = targetRow.dataset.taskId;
+    var ancestors = ancestorCodes(targetRow);
+    for (var i = 0; i < dragState.tasks.length; i++) {
+      var t = dragState.tasks[i];
+      if (t.id === targetId) return false;
+      if (ancestors.indexOf(t.code) !== -1) return false;
+    }
+    return true;
+  }
+
+  function clearDropHints() {
+    document.querySelectorAll('.task-drop-active').forEach(function (el) {
+      el.classList.remove('task-drop-active', 'task-drop-invalid');
+    });
+  }
+
+  function postPredecessors(tbody, tasks, predecessors) {
+    if (typeof htmx === 'undefined' || !tasks.length) return;
+    if (tasks.length === 1) {
+      htmx.ajax('POST', predecessorUrl(tbody, tasks[0].id), {
+        target: '#task-table-body',
+        swap: 'innerHTML',
+        values: { predecessors: predecessors }
+      });
+      return;
+    }
+    var bulkUrl = tbody.dataset.bulkPredecessorUrl;
+    if (!bulkUrl) return;
+    htmx.ajax('POST', bulkUrl, {
+      target: '#task-table-body',
+      swap: 'innerHTML',
+      values: {
+        predecessors: predecessors,
+        task_ids: tasks.map(function (t) { return t.id; })
+      }
+    });
+  }
+
+  document.body.addEventListener('dragstart', function (evt) {
+    var handle = evt.target.closest('.task-drag-handle');
+    if (!handle) return;
+    var row = handle.closest('tr.task-grid-row');
+    var tbody = row && row.closest('#task-table-body');
+    if (!row || !tbody) return;
+    var tasks = window.pertTaskSelection
+      ? window.pertTaskSelection.tasksForDrag(tbody, row)
+      : [{ id: row.dataset.taskId, code: row.dataset.taskCode }];
+    dragState = { tasks: tasks };
+    evt.dataTransfer.effectAllowed = 'move';
+    evt.dataTransfer.setData('text/plain', tasks.map(function (t) { return t.code; }).join(', '));
+    document.body.classList.add('task-dragging');
+  });
+
+  document.body.addEventListener('dragend', function () {
+    dragState = null;
+    document.body.classList.remove('task-dragging');
+    clearDropHints();
+  });
+
+  function bindDropSurface(el, getPredecessorCode) {
+    if (!el || el.dataset.taskDropBound === 'true') return;
+    el.dataset.taskDropBound = 'true';
+
+    el.addEventListener('dragover', function (evt) {
+      if (!dragState) return;
+      evt.preventDefault();
+      var ok = getPredecessorCode(evt) !== false;
+      el.classList.toggle('task-drop-active', ok);
+      el.classList.toggle('task-drop-invalid', !ok);
+      evt.dataTransfer.dropEffect = ok ? 'move' : 'none';
+    });
+
+    el.addEventListener('dragleave', function (evt) {
+      if (evt.currentTarget.contains(evt.relatedTarget)) return;
+      el.classList.remove('task-drop-active', 'task-drop-invalid');
+    });
+
+    el.addEventListener('drop', function (evt) {
+      if (!dragState) return;
+      evt.preventDefault();
+      var tbody = document.getElementById('task-table-body');
+      var predCode = getPredecessorCode(evt);
+      var ok = predCode !== false;
+      clearDropHints();
+      if (!ok || !tbody) return;
+      postPredecessors(tbody, dragState.tasks, predCode);
+    });
+  }
+
+  function initTaskDragDrop() {
+    var rootDrop = document.getElementById('task-tree-root-drop');
+    bindDropSurface(rootDrop, function () { return ''; });
+
+    document.querySelectorAll('#task-table-body tr.task-grid-row').forEach(function (row) {
+      if (row.dataset.taskDropBound === 'true') return;
+      row.dataset.taskDropBound = 'true';
+
+      row.addEventListener('dragover', function (evt) {
+        if (!dragState) return;
+        evt.preventDefault();
+        var ok = canDropOnRow(dragState, row);
+        clearDropHints();
+        row.classList.add(ok ? 'task-drop-active' : 'task-drop-invalid');
+        evt.dataTransfer.dropEffect = ok ? 'move' : 'none';
+      });
+
+      row.addEventListener('dragleave', function (evt) {
+        if (row.contains(evt.relatedTarget)) return;
+        row.classList.remove('task-drop-active', 'task-drop-invalid');
+      });
+
+      row.addEventListener('drop', function (evt) {
+        if (!dragState) return;
+        evt.preventDefault();
+        var tbody = row.closest('#task-table-body');
+        var ok = canDropOnRow(dragState, row);
+        clearDropHints();
+        if (!ok || !tbody) return;
+        postPredecessors(tbody, dragState.tasks, row.dataset.taskCode);
+      });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initTaskDragDrop);
+  } else {
+    initTaskDragDrop();
+  }
+  document.body.addEventListener('htmx:afterSwap', function (evt) {
+    if (evt.detail.target.id === 'task-table-body') {
+      initTaskDragDrop();
     }
   });
 })();
@@ -440,10 +1076,12 @@ async function saveBlobDesktopOrBrowser(blob, filename) {
   }
   refreshButton();
   // The diagram is swapped in via HTMX (initial load + refreshes), so
-  // re-enable the button whenever a swap lands.
+  // re-enable the button whenever a swap lands or the diagram tab is opened.
   document.body.addEventListener('htmx:afterSwap', function () {
     refreshButton();
   });
+  const diagTab = document.getElementById('diagram-tab');
+  if (diagTab) diagTab.addEventListener('shown.bs.tab', refreshButton);
 
   btn.addEventListener('click', async function () {
     const canvas = container.querySelector('.diagram-canvas');
@@ -471,6 +1109,170 @@ async function saveBlobDesktopOrBrowser(blob, filename) {
       btn.textContent = label;
       refreshButton();
     }
+  });
+})();
+</script>
+<script>
+(function () {
+  const list = document.getElementById('requirements-list');
+  const search = document.getElementById('requirements-search');
+  const priorityFilter = document.getElementById('requirements-filter-priority');
+  const coverageFilter = document.getElementById('requirements-filter-coverage');
+  const resultCount = document.getElementById('requirements-result-count');
+  if (!list || !search || !priorityFilter || !coverageFilter || !resultCount) return;
+
+  const sortButtons = Array.from(document.querySelectorAll('.requirement-sort-button'));
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const priorityOrder = { must: 0, should: 1, could: 2, wont: 3 };
+  const coverageOrder = {
+    not_covered: 0,
+    planned: 1,
+    in_progress: 2,
+    implemented: 3
+  };
+  let sortKey = 'code';
+  let sortDirection = 1;
+
+  function valueFor(row, key) {
+    if (key === 'code') return row.querySelector('.requirement-code').textContent.trim();
+    if (key === 'title') return row.querySelector('input[name="title"]').value;
+    if (key === 'description') return row.querySelector('textarea[name="description"]').value;
+    if (key === 'priority') return priorityOrder[row.querySelector('select[name="moscow"]').value] ?? 99;
+    if (key === 'tasks') return row.querySelector('.requirement-trace-tasks').textContent.trim();
+    if (key === 'status') return row.querySelector('.requirement-trace-status').textContent.trim();
+    if (key === 'coverage') return coverageOrder[row.dataset.coverage] ?? 99;
+    return '';
+  }
+
+  function updateSortIndicators() {
+    sortButtons.forEach(function (button) {
+      const active = button.dataset.sort === sortKey;
+      button.setAttribute('aria-pressed', String(active));
+      button.querySelector('.requirement-sort-indicator').textContent =
+        active ? (sortDirection > 0 ? '↑' : '↓') : '↕';
+    });
+  }
+
+  function applyRequirementsView() {
+    const rows = Array.from(list.querySelectorAll('.requirement-row'));
+    rows.sort(function (a, b) {
+      const aValue = valueFor(a, sortKey);
+      const bValue = valueFor(b, sortKey);
+      const compared = typeof aValue === 'number'
+        ? aValue - bValue
+        : collator.compare(aValue, bValue);
+      return compared
+        ? compared * sortDirection
+        : collator.compare(valueFor(a, 'code'), valueFor(b, 'code'));
+    });
+    rows.forEach(function (row) {
+      list.appendChild(row);
+    });
+
+    const query = search.value.trim().toLocaleLowerCase();
+    let visibleCount = 0;
+    rows.forEach(function (row) {
+      const title = row.querySelector('input[name="title"]').value;
+      const description = row.querySelector('textarea[name="description"]').value;
+      const priority = row.querySelector('select[name="moscow"]').value;
+      const searchable = [
+        valueFor(row, 'code'),
+        title,
+        description,
+        valueFor(row, 'tasks'),
+        valueFor(row, 'status'),
+        row.dataset.coverage,
+        priority
+      ].join(' ').toLocaleLowerCase();
+      const matches = (!query || searchable.includes(query))
+        && (priorityFilter.value === 'all' || priority === priorityFilter.value)
+        && (coverageFilter.value === 'all' || row.dataset.coverage === coverageFilter.value);
+      row.classList.toggle('requirement-filtered-hidden', !matches);
+      if (matches) visibleCount += 1;
+    });
+    resultCount.textContent = 'Showing ' + visibleCount + ' of ' + rows.length + ' requirements';
+  }
+
+  sortButtons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      if (sortKey === button.dataset.sort) {
+        sortDirection *= -1;
+      } else {
+        sortKey = button.dataset.sort;
+        sortDirection = 1;
+      }
+      updateSortIndicators();
+      applyRequirementsView();
+    });
+  });
+  [search, priorityFilter, coverageFilter].forEach(function (control) {
+    control.addEventListener('input', applyRequirementsView);
+    control.addEventListener('change', applyRequirementsView);
+  });
+  document.addEventListener('htmx:afterSwap', function (event) {
+    if (event.detail.target === list) applyRequirementsView();
+  });
+
+  updateSortIndicators();
+  applyRequirementsView();
+})();
+</script>
+<script>
+(function () {
+  const pane = document.getElementById('requirements-pane');
+  if (!pane) return;
+
+  const handles = Array.from(pane.querySelectorAll('.requirements-resize-handle'));
+  let activeResize = null;
+
+  function applyWidth(handle, width) {
+    const min = Number(handle.getAttribute('aria-valuemin'));
+    const max = Number(handle.getAttribute('aria-valuemax'));
+    const clamped = Math.max(min, Math.min(max, width));
+    const column = handle.dataset.requirementColumn;
+    pane.style.setProperty('--requirement-column-' + column, clamped + 'px');
+    handle.setAttribute('aria-valuenow', String(Math.round(clamped)));
+  }
+
+  function finishResize(pointerId) {
+    if (!activeResize || activeResize.pointerId !== pointerId) return;
+    activeResize = null;
+    document.body.classList.remove('requirements-column-resizing');
+  }
+
+  handles.forEach(function (handle) {
+    handle.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0) return;
+      const startWidth = handle.parentElement.getBoundingClientRect().width;
+      if (!startWidth) return;
+      event.preventDefault();
+      activeResize = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidth: startWidth,
+        handle: handle
+      };
+      handle.setPointerCapture(event.pointerId);
+      document.body.classList.add('requirements-column-resizing');
+      applyWidth(handle, startWidth);
+    });
+    handle.addEventListener('pointermove', function (event) {
+      if (!activeResize || activeResize.pointerId !== event.pointerId) return;
+      applyWidth(activeResize.handle, activeResize.startWidth + event.clientX - activeResize.startX);
+    });
+    handle.addEventListener('pointerup', function (event) {
+      finishResize(event.pointerId);
+    });
+    handle.addEventListener('pointercancel', function (event) {
+      finishResize(event.pointerId);
+    });
+    handle.addEventListener('keydown', function (event) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      const currentWidth = handle.parentElement.getBoundingClientRect().width;
+      const step = event.key === 'ArrowRight' ? 10 : -10;
+      applyWidth(handle, currentWidth + step);
+    });
   });
 })();
 </script>

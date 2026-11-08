@@ -86,13 +86,19 @@ open (a normal VS Code terminal works).
 
 ## Seeding the Demo
 
-To create the 8-task demo project matching the reference image:
+To create the Northstar Commerce Modernization sample project:
 
 ```bash
 python seed_demo.py
 ```
 
-Then open http://127.0.0.1:5000/ and click "Demo Project".
+The sample is scheduled from June 1 through its December 18, 2026 go-live
+milestone. It includes 62 linked tasks and milestones across six swimlanes,
+30 traceable requirements, team members, project holidays, a saved baseline,
+and example risks, assumptions, issues, and decisions. Seeding again refreshes
+only this sample project; other projects and their data are left untouched.
+
+Then open http://127.0.0.1:5000/ and click "Northstar Commerce Modernization".
 
 ## Running Tests
 

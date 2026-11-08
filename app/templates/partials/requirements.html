@@ -1,5 +1,7 @@
 {% for requirement in requirements %}
-<div class="requirement-row{% if requirement.status == 'done' %} requirement-row--done{% endif %}">
+{% set trace = requirement.traceability %}
+<div class="requirement-row requirement-row--{{ trace.coverage }}"
+     data-coverage="{{ trace.coverage }}">
 <form id="requirement-update-{{ requirement.id }}" method="POST"
       action="{{ url_for('main.manage_requirements', id=project.id) }}"
       hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
@@ -12,33 +14,19 @@
          aria-label="Requirement title" required>
   <textarea class="form-control form-control-sm" name="description" rows="1"
             placeholder="Description">{{ requirement.description or "" }}</textarea>
-  <select class="form-select form-select-sm" name="moscow" aria-label="MoSCoW category">
+  <select class="form-select form-select-sm" name="moscow" aria-label="MoSCoW priority">
     {% for value, label in moscow_choices %}
     <option value="{{ value }}"{% if requirement.moscow == value %} selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
 </form>
-<form method="POST"
-      action="{{ url_for('main.manage_requirements', id=project.id) }}"
-      hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
-      hx-target="#requirements-list" hx-swap="innerHTML">
-  <input type="hidden" name="action" value="toggle_done">
-  <input type="hidden" name="requirement_id" value="{{ requirement.id }}">
-  <input type="hidden" name="partial" value="requirements">
-  <input class="form-check-input requirement-done-check" type="checkbox" name="done" value="1"
-         aria-label="Mark requirement covered"
-         {% if requirement.status == "done" %}checked{% endif %}
-         onchange="this.form.requestSubmit()">
-</form>
-<div class="requirement-linked-tasks" aria-label="Linked tasks">
-  {% set linked = requirement.tasks|sort(attribute='code') %}
-  {% if linked %}
-  {% for task in linked %}
-  <span class="requirement-linked-task">{{ task.code }} — {{ task.name }}</span>{% if not loop.last %}, {% endif %}
-  {% endfor %}
-  {% else %}
-  <span class="text-muted">—</span>
-  {% endif %}
+<div class="requirement-trace-tasks font-monospace small" title="Linked tasks">
+  {{ trace.task_codes }}
+</div>
+<div class="requirement-trace-status">{{ trace.status_display }}</div>
+<div class="requirement-trace-coverage" title="{{ trace.coverage_label }}">
+  <span class="requirement-coverage-emoji" aria-hidden="true">{{ trace.coverage_emoji }}</span>
+  <span class="visually-hidden">{{ trace.coverage_label }}</span>
 </div>
 <button class="btn btn-sm btn-outline-secondary" type="submit"
         form="requirement-update-{{ requirement.id }}">Save</button>

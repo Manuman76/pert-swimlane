@@ -59,10 +59,29 @@ def _migrate_schema():
             db.session.execute(
                 text(f"ALTER TABLE tasks ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT 0")
             )
+    task_text_cols = {
+        "description": "TEXT",
+        "notes": "TEXT",
+        "links": "TEXT",
+        "priority": "TEXT NOT NULL DEFAULT 'medium'",
+        "progress_percent": "INTEGER",
+        "kind": "TEXT NOT NULL DEFAULT 'task'",
+        "baseline_start_date": "DATE",
+        "baseline_end_date": "DATE",
+        "baseline_duration_days": "INTEGER",
+    }
+    for col, ddl in task_text_cols.items():
+        if col not in existing:
+            db.session.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}"))
+            existing.add(col)
 
     project_columns = {r[1] for r in db.session.execute(text("PRAGMA table_info(projects)"))}
     if "description" not in project_columns:
         db.session.execute(text("ALTER TABLE projects ADD COLUMN description TEXT"))
+    if "baseline_set_at" not in project_columns:
+        db.session.execute(text("ALTER TABLE projects ADD COLUMN baseline_set_at DATETIME"))
+    if "workdays" not in project_columns:
+        db.session.execute(text("ALTER TABLE projects ADD COLUMN workdays TEXT NOT NULL DEFAULT '0,1,2,3,4'"))
 
     requirement_columns = {
         r[1] for r in db.session.execute(text("PRAGMA table_info(requirements)"))

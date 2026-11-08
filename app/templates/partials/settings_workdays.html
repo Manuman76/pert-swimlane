@@ -1,0 +1,18 @@
+<div id="settings-workdays-container">
+  <form method="POST" action="{{ url_for('main.update_project_workdays', id=project.id) }}"
+        hx-post="{{ url_for('main.update_project_workdays', id=project.id) }}"
+        hx-target="#settings-workdays-container"
+        hx-swap="outerHTML">
+    <input type="hidden" name="partial" value="settings">
+    <div class="d-flex flex-wrap gap-3 mb-3">
+      {% for val, label in weekday_choices %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="workdays" value="{{ val }}" id="workday-{{ val }}"
+               {% if val in project.workdays_set %}checked{% endif %}>
+        <label class="form-check-label fw-semibold" for="workday-{{ val }}">{{ label }}</label>
+      </div>
+      {% endfor %}
+    </div>
+    <button class="btn btn-sm btn-outline-primary" type="submit">Save working days</button>
+  </form>
+</div>

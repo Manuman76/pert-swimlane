@@ -94,7 +94,7 @@ def export_project_csv(project, lanes, tasks):
         writer.writerow({
             "Issue ID": _issue_id(task),
             "Summary": task.name,
-            "Issue Type": ISSUE_TYPE,
+            "Issue Type": "Milestone" if task.is_milestone else ISSUE_TYPE,
             "Component": lane_names.get(task.lane_id, ""),
             "Assignee": task.responsible or "",
             "Description": _description(task),
@@ -114,8 +114,11 @@ def export_project_csv(project, lanes, tasks):
 
 def _description(task):
     """Short context Jira users see, including the PERT code for traceability."""
-    parts = [f"PERT task {task.code}"]
-    if task.start_date and task.end_date:
+    kind = "milestone" if task.is_milestone else "task"
+    parts = [f"PERT {kind} {task.code}"]
+    if task.is_milestone and task.start_date:
+        parts.append(f"target date {task.start_date.isoformat()}")
+    elif task.start_date and task.end_date:
         parts.append(
             f"scheduled {task.start_date.isoformat()} to {task.end_date.isoformat()}"
         )

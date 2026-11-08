@@ -1,0 +1,42 @@
+<div id="settings-holidays-container">
+  <form class="row g-2 mb-3" method="POST"
+        action="{{ url_for('main.manage_holidays', id=project.id) }}"
+        hx-post="{{ url_for('main.manage_holidays', id=project.id) }}"
+        hx-target="#settings-holidays-container"
+        hx-swap="outerHTML">
+    <input type="hidden" name="action" value="add">
+    <input type="hidden" name="partial" value="settings">
+    <div class="col-12 col-sm-5">
+      <input type="date" class="form-control form-control-sm" name="date" required title="Holiday date" placeholder="YYYY-MM-DD">
+    </div>
+    <div class="col-12 col-sm-5">
+      <input type="text" class="form-control form-control-sm" name="name" required placeholder="Holiday name (e.g. Christmas)" maxlength="100">
+    </div>
+    <div class="col-12 col-sm-2">
+      <button class="btn btn-sm btn-outline-success w-100" type="submit">Add</button>
+    </div>
+  </form>
+
+  <div id="settings-holidays-list" class="d-flex flex-column gap-1">
+    {% for h in project.holidays %}
+    <div class="d-flex justify-content-between align-items-center py-1 px-3 rounded bg-light border">
+      <div>
+        <span class="fw-semibold text-dark me-2 font-monospace small">{{ h.date.strftime("%d %b %Y").lstrip("0") }}</span>
+        <span class="text-secondary small">{{ h.name }}</span>
+      </div>
+      <form method="POST" action="{{ url_for('main.manage_holidays', id=project.id) }}"
+            hx-post="{{ url_for('main.manage_holidays', id=project.id) }}"
+            hx-target="#settings-holidays-container"
+            hx-swap="outerHTML"
+            onsubmit="return confirm('Remove holiday {{ h.name }}?');">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="holiday_id" value="{{ h.id }}">
+        <input type="hidden" name="partial" value="settings">
+        <button class="btn btn-sm btn-outline-danger border-0 py-0 px-2" type="submit" title="Remove holiday">&times;</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">No holidays configured yet.</p>
+    {% endfor %}
+  </div>
+</div>

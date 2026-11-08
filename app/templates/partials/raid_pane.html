@@ -1,0 +1,6 @@
+<div id="raid-content" class="raid-log">
+  {% for kind in raid_kinds %}
+  {% set section_items = raid_by_kind[kind] %}
+  {% include "partials/raid_section.html" %}
+  {% endfor %}
+</div>

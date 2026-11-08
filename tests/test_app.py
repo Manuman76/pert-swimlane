@@ -82,8 +82,12 @@ def test_project_settings_update_and_tabs(client, app):
     page = client.get(f"/projects/{pid}")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
-    assert "Tasks &amp; diagram" in html
-    assert "Project settings" in html
+    assert "Tasks" in html
+    assert "Diagram" in html
+    assert "Overview" in html
+    assert "Requirements" in html
+    assert "RAID" in html
+    assert "Settings" in html
     assert "Planning" in html
 
     response = client.post(f"/projects/{pid}/settings", data={
@@ -232,19 +236,29 @@ def test_business_requirements_can_link_tasks(client, app):
     })
     assert response.status_code == 200
 
-    response = client.post(f"/projects/{pid}/requirements", data={
-        "action": "toggle_done",
-        "requirement_id": requirement_id,
-        "done": "1",
-        "partial": "requirements",
+    response = client.get(f"/projects/{pid}/requirements/list")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "001" in html
+    assert "Planned" in html
+    assert "\U0001f7e7" in html
+
+    response = client.post(f"/tasks/{task_id}/update", data={
+        "requirement_id": str(requirement_id),
+        "start_date": "1 Jun 2017",
+        "duration_days": "1",
+        "status": "done",
     })
     assert response.status_code == 200
-    assert "001 — Build feature" in response.get_data(as_text=True)
+
+    html = client.get(f"/projects/{pid}/requirements/list").get_data(as_text=True)
+    assert "Done" in html
+    assert "\U0001f7e9" in html
 
     with app.app_context():
         requirement = Requirement.query.get(requirement_id)
-        assert requirement.status == "done"
         assert [task.id for task in requirement.tasks] == [task_id]
+        assert requirement.traceability.coverage == "implemented"
 
 
 def test_validation_unknown_predecessor(client, app):
@@ -473,6 +487,104 @@ def test_layout_siblings_stack_vertically(app):
         assert cards["003"][0] > cards["001"][0]
 
 
+def test_layout_root_tasks_in_lane_stack_vertically(app):
+    """Tasks in one swimlane with no predecessors share a column and stack."""
+    with app.app_context():
+        import re
+        from app.diagram import build_diagram
+
+        proj = _create_project("P7c")
+        lane = _create_lane(proj, "Lane", sort_order=1)
+        for code, name, start in [
+            ("001", "First", date(2017, 6, 1)),
+            ("002", "Second", date(2017, 6, 5)),
+            ("003", "Third", date(2017, 6, 9)),
+        ]:
+            db.session.add(Task(
+                project_id=proj.id, code=code, lane_id=lane.id, name=name,
+                start_date=start, duration_days=2, predecessors=None,
+            ))
+        db.session.commit()
+
+        tasks = Task.query.filter_by(project_id=proj.id).order_by(Task.code).all()
+        html = build_diagram([lane], tasks)
+
+        cards_list = re.findall(
+            r'class="task-card[^"]*" style="left:([\d.]+)px; top:([\d.]+)px;',
+            html,
+        )
+        assert len(cards_list) == 3
+        xs = [float(c[0]) for c in cards_list]
+        ys = [float(c[1]) for c in cards_list]
+        assert len(set(xs)) == 1
+        assert ys == sorted(ys) and len(set(ys)) == 3
+
+
+def test_diagram_dependency_paths_avoid_cards(app):
+    """Arrow segments must not pass through unrelated task cards (e.g. after
+    bulk-assigning the same predecessor to several tasks)."""
+    with app.app_context():
+        import re
+        from app.diagram import build_diagram
+
+        proj = _create_project("P7b")
+        lane = _create_lane(proj, "Work", sort_order=1)
+        data = [
+            ("001", "Anchor", date(2017, 6, 1), 3, ""),
+            ("002", "Sibling B", date(2017, 6, 8), 2, "001"),
+            ("003", "Sibling C", date(2017, 6, 8), 2, "001"),
+            ("004", "Unrelated", date(2017, 6, 4), 2, ""),
+        ]
+        for code, name, start, dur, preds in data:
+            db.session.add(Task(
+                project_id=proj.id, code=code, lane_id=lane.id, name=name,
+                start_date=start, duration_days=dur, predecessors=preds or None,
+            ))
+        db.session.commit()
+
+        tasks = [Task.query.filter_by(project_id=proj.id, code=c).one()
+                 for c, _, _, _, _ in data]
+        html = build_diagram([lane], tasks)
+
+        cards = {}
+        for task in tasks:
+            pat = (
+                rf'class="task-card[^"]*" style="left:([\d.]+)px; top:([\d.]+)px;'
+                rf' width:([\d.]+)px; height:([\d.]+)px;">'
+                rf'[\s\S]*?<div class="card-cell">{task.code}</div>'
+            )
+            m = re.search(pat, html)
+            assert m, f"card for {task.code}"
+            cards[task.code] = tuple(float(m.group(i)) for i in range(1, 5))
+
+        def segment_hits_rect(x1, y1, x2, y2, rx, ry, rw, rh):
+            inset = 1.0
+            left, right = rx + inset, rx + rw - inset
+            top, bottom = ry + inset, ry + rh - inset
+            if abs(x1 - x2) < 0.01:
+                if not (left < x1 < right):
+                    return False
+                lo, hi = min(y1, y2), max(y1, y2)
+                return lo < bottom and hi > top
+            if abs(y1 - y2) < 0.01:
+                if not (top < y1 < bottom):
+                    return False
+                lo, hi = min(x1, x2), max(x1, x2)
+                return lo < right and hi > left
+            return False
+
+        paths = re.findall(r'<path d="([^"]+)"', html)
+        assert paths
+        for path in paths:
+            nums = [float(v) for v in re.findall(r"[\d.]+", path)]
+            points = list(zip(nums[0::2], nums[1::2]))
+            for (x1, y1), (x2, y2) in zip(points, points[1:]):
+                for code, (rx, ry, rw, rh) in cards.items():
+                    assert not segment_hits_rect(x1, y1, x2, y2, rx, ry, rw, rh), (
+                        f"edge segment ({x1},{y1})-({x2},{y2}) crosses task {code}"
+                    )
+
+
 def test_layout_lane_grows_for_stacked_siblings(app):
     """A lane that stacks siblings must be tall enough to fit every row."""
     with app.app_context():
@@ -561,6 +673,54 @@ def test_move_lane_top_and_bottom_noops(client, app):
 
         order = [l.name for l in Lane.query.filter_by(project_id=proj.id).order_by(Lane.sort_order).all()]
         assert order == ["A", "B"]
+
+
+def test_task_detail_panel_load_and_save(client, app):
+    with app.app_context():
+        proj = _create_project("DetailPanel")
+        lane = _create_lane(proj, "Dev", sort_order=1)
+        task = Task(
+            project_id=proj.id,
+            code="001",
+            lane_id=lane.id,
+            name="Configure SFTP",
+            start_date=date(2017, 10, 26),
+            duration_days=3,
+            responsible="David",
+            priority="high",
+        )
+        db.session.add(task)
+        db.session.commit()
+        tid = task.id
+
+    resp = client.get(f"/tasks/{tid}/detail")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Configure SFTP" in html
+    assert "Description" in html
+
+    resp = client.post(f"/tasks/{tid}/detail", data={
+        "name": "Configure SFTP Interface",
+        "description": "Implement inbound SFTP interface",
+        "notes": "Review with infra",
+        "links": "Architecture diagram",
+        "priority": "high",
+        "progress_percent": "60",
+        "lane_name": "Dev",
+        "start_date": "26 Oct 2017",
+        "duration_days": "3",
+        "responsible": "David",
+        "requirement_id": "",
+        "status": "started",
+    })
+    assert resp.status_code == 200
+
+    with app.app_context():
+        saved = Task.query.get(tid)
+        assert saved.name == "Configure SFTP Interface"
+        assert saved.description == "Implement inbound SFTP interface"
+        assert saved.progress_percent == 60
+        assert saved.started is True
 
 
 def test_backward_edge_above_right_uses_direct_route(app):
