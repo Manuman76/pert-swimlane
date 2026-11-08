@@ -1,6 +1,7 @@
 {% for requirement in requirements %}
 {% set trace = requirement.traceability %}
-<div class="requirement-row requirement-row--{{ trace.coverage }}">
+<div class="requirement-row requirement-row--{{ trace.coverage }}"
+     data-coverage="{{ trace.coverage }}">
 <form id="requirement-update-{{ requirement.id }}" method="POST"
       action="{{ url_for('main.manage_requirements', id=project.id) }}"
       hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"

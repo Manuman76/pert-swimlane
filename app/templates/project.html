@@ -201,6 +201,34 @@
         <span class="me-3"><span aria-hidden="true">🟦</span> In progress</span>
         <span><span aria-hidden="true">🟩</span> Implemented</span>
       </div>
+      <div class="requirements-controls d-flex flex-wrap gap-2 mb-3">
+        <div class="requirements-search">
+          <label class="form-label small mb-1" for="requirements-search">Search requirements</label>
+          <input id="requirements-search" class="form-control form-control-sm" type="search"
+                 placeholder="Code, title, description, or task">
+        </div>
+        <div class="requirements-filter">
+          <label class="form-label small mb-1" for="requirements-filter-priority">Priority</label>
+          <select id="requirements-filter-priority" class="form-select form-select-sm">
+            <option value="all">All priorities</option>
+            {% for value, label in moscow_choices %}
+            <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="requirements-filter">
+          <label class="form-label small mb-1" for="requirements-filter-coverage">Coverage</label>
+          <select id="requirements-filter-coverage" class="form-select form-select-sm">
+            <option value="all">All coverage</option>
+            <option value="not_covered">Not covered</option>
+            <option value="planned">Planned</option>
+            <option value="in_progress">In progress</option>
+            <option value="implemented">Implemented</option>
+          </select>
+        </div>
+        <span id="requirements-result-count" class="requirements-result-count small text-muted ms-auto"
+              role="status" aria-live="polite"></span>
+      </div>
       <form class="requirement-add-form" method="POST"
             action="{{ url_for('main.manage_requirements', id=project.id) }}"
             hx-post="{{ url_for('main.manage_requirements', id=project.id) }}"
@@ -220,8 +248,42 @@
         <button class="btn btn-sm btn-outline-success" type="submit">Add requirement</button>
       </form>
       <div class="requirements-header">
-        <span>Requirement</span><span>Title</span><span>Description</span><span>Priority</span>
-        <span>Tasks</span><span>Status</span><span>Coverage</span><span></span><span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="code"
+                      aria-pressed="true">Requirement <span class="requirement-sort-indicator" aria-hidden="true">↑</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="code"
+                role="separator" aria-orientation="vertical" aria-label="Resize Requirement column"
+                aria-valuemin="64" aria-valuemax="240" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="title"
+                      aria-pressed="false">Title <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="title"
+                role="separator" aria-orientation="vertical" aria-label="Resize Title column"
+                aria-valuemin="140" aria-valuemax="480" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="description"
+                      aria-pressed="false">Description <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="description"
+                role="separator" aria-orientation="vertical" aria-label="Resize Description column"
+                aria-valuemin="150" aria-valuemax="600" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="priority"
+                      aria-pressed="false">Priority <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="priority"
+                role="separator" aria-orientation="vertical" aria-label="Resize Priority column"
+                aria-valuemin="95" aria-valuemax="240" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="tasks"
+                      aria-pressed="false">Tasks <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="tasks"
+                role="separator" aria-orientation="vertical" aria-label="Resize Tasks column"
+                aria-valuemin="64" aria-valuemax="240" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="status"
+                      aria-pressed="false">Status <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="status"
+                role="separator" aria-orientation="vertical" aria-label="Resize Status column"
+                aria-valuemin="75" aria-valuemax="240" tabindex="0"></span></span>
+        <span><button type="button" class="requirement-sort-button" data-sort="coverage"
+                      aria-pressed="false">Coverage <span class="requirement-sort-indicator" aria-hidden="true">↕</span></button>
+          <span class="requirements-resize-handle" data-requirement-column="coverage"
+                role="separator" aria-orientation="vertical" aria-label="Resize Coverage column"
+                aria-valuemin="52" aria-valuemax="160" tabindex="0"></span></span>
+        <span></span><span></span>
       </div>
       <div id="requirements-list"
            hx-get="{{ url_for('main.requirements_list_partial', id=project.id) }}"
@@ -1047,6 +1109,170 @@ async function saveBlobDesktopOrBrowser(blob, filename) {
       btn.textContent = label;
       refreshButton();
     }
+  });
+})();
+</script>
+<script>
+(function () {
+  const list = document.getElementById('requirements-list');
+  const search = document.getElementById('requirements-search');
+  const priorityFilter = document.getElementById('requirements-filter-priority');
+  const coverageFilter = document.getElementById('requirements-filter-coverage');
+  const resultCount = document.getElementById('requirements-result-count');
+  if (!list || !search || !priorityFilter || !coverageFilter || !resultCount) return;
+
+  const sortButtons = Array.from(document.querySelectorAll('.requirement-sort-button'));
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const priorityOrder = { must: 0, should: 1, could: 2, wont: 3 };
+  const coverageOrder = {
+    not_covered: 0,
+    planned: 1,
+    in_progress: 2,
+    implemented: 3
+  };
+  let sortKey = 'code';
+  let sortDirection = 1;
+
+  function valueFor(row, key) {
+    if (key === 'code') return row.querySelector('.requirement-code').textContent.trim();
+    if (key === 'title') return row.querySelector('input[name="title"]').value;
+    if (key === 'description') return row.querySelector('textarea[name="description"]').value;
+    if (key === 'priority') return priorityOrder[row.querySelector('select[name="moscow"]').value] ?? 99;
+    if (key === 'tasks') return row.querySelector('.requirement-trace-tasks').textContent.trim();
+    if (key === 'status') return row.querySelector('.requirement-trace-status').textContent.trim();
+    if (key === 'coverage') return coverageOrder[row.dataset.coverage] ?? 99;
+    return '';
+  }
+
+  function updateSortIndicators() {
+    sortButtons.forEach(function (button) {
+      const active = button.dataset.sort === sortKey;
+      button.setAttribute('aria-pressed', String(active));
+      button.querySelector('.requirement-sort-indicator').textContent =
+        active ? (sortDirection > 0 ? '↑' : '↓') : '↕';
+    });
+  }
+
+  function applyRequirementsView() {
+    const rows = Array.from(list.querySelectorAll('.requirement-row'));
+    rows.sort(function (a, b) {
+      const aValue = valueFor(a, sortKey);
+      const bValue = valueFor(b, sortKey);
+      const compared = typeof aValue === 'number'
+        ? aValue - bValue
+        : collator.compare(aValue, bValue);
+      return compared
+        ? compared * sortDirection
+        : collator.compare(valueFor(a, 'code'), valueFor(b, 'code'));
+    });
+    rows.forEach(function (row) {
+      list.appendChild(row);
+    });
+
+    const query = search.value.trim().toLocaleLowerCase();
+    let visibleCount = 0;
+    rows.forEach(function (row) {
+      const title = row.querySelector('input[name="title"]').value;
+      const description = row.querySelector('textarea[name="description"]').value;
+      const priority = row.querySelector('select[name="moscow"]').value;
+      const searchable = [
+        valueFor(row, 'code'),
+        title,
+        description,
+        valueFor(row, 'tasks'),
+        valueFor(row, 'status'),
+        row.dataset.coverage,
+        priority
+      ].join(' ').toLocaleLowerCase();
+      const matches = (!query || searchable.includes(query))
+        && (priorityFilter.value === 'all' || priority === priorityFilter.value)
+        && (coverageFilter.value === 'all' || row.dataset.coverage === coverageFilter.value);
+      row.classList.toggle('requirement-filtered-hidden', !matches);
+      if (matches) visibleCount += 1;
+    });
+    resultCount.textContent = 'Showing ' + visibleCount + ' of ' + rows.length + ' requirements';
+  }
+
+  sortButtons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      if (sortKey === button.dataset.sort) {
+        sortDirection *= -1;
+      } else {
+        sortKey = button.dataset.sort;
+        sortDirection = 1;
+      }
+      updateSortIndicators();
+      applyRequirementsView();
+    });
+  });
+  [search, priorityFilter, coverageFilter].forEach(function (control) {
+    control.addEventListener('input', applyRequirementsView);
+    control.addEventListener('change', applyRequirementsView);
+  });
+  document.addEventListener('htmx:afterSwap', function (event) {
+    if (event.detail.target === list) applyRequirementsView();
+  });
+
+  updateSortIndicators();
+  applyRequirementsView();
+})();
+</script>
+<script>
+(function () {
+  const pane = document.getElementById('requirements-pane');
+  if (!pane) return;
+
+  const handles = Array.from(pane.querySelectorAll('.requirements-resize-handle'));
+  let activeResize = null;
+
+  function applyWidth(handle, width) {
+    const min = Number(handle.getAttribute('aria-valuemin'));
+    const max = Number(handle.getAttribute('aria-valuemax'));
+    const clamped = Math.max(min, Math.min(max, width));
+    const column = handle.dataset.requirementColumn;
+    pane.style.setProperty('--requirement-column-' + column, clamped + 'px');
+    handle.setAttribute('aria-valuenow', String(Math.round(clamped)));
+  }
+
+  function finishResize(pointerId) {
+    if (!activeResize || activeResize.pointerId !== pointerId) return;
+    activeResize = null;
+    document.body.classList.remove('requirements-column-resizing');
+  }
+
+  handles.forEach(function (handle) {
+    handle.addEventListener('pointerdown', function (event) {
+      if (event.button !== 0) return;
+      const startWidth = handle.parentElement.getBoundingClientRect().width;
+      if (!startWidth) return;
+      event.preventDefault();
+      activeResize = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidth: startWidth,
+        handle: handle
+      };
+      handle.setPointerCapture(event.pointerId);
+      document.body.classList.add('requirements-column-resizing');
+      applyWidth(handle, startWidth);
+    });
+    handle.addEventListener('pointermove', function (event) {
+      if (!activeResize || activeResize.pointerId !== event.pointerId) return;
+      applyWidth(activeResize.handle, activeResize.startWidth + event.clientX - activeResize.startX);
+    });
+    handle.addEventListener('pointerup', function (event) {
+      finishResize(event.pointerId);
+    });
+    handle.addEventListener('pointercancel', function (event) {
+      finishResize(event.pointerId);
+    });
+    handle.addEventListener('keydown', function (event) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      const currentWidth = handle.parentElement.getBoundingClientRect().width;
+      const step = event.key === 'ArrowRight' ? 10 : -10;
+      applyWidth(handle, currentWidth + step);
+    });
   });
 })();
 </script>

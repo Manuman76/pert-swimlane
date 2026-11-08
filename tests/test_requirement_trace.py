@@ -120,3 +120,23 @@ def test_requirements_matrix_in_ui(client, app):
     assert "Started" in html
     assert "\U0001f7e6" in html  # in progress
     assert "requirement-done-check" not in html
+
+
+def test_requirements_tab_has_sort_and_filter_controls(client, app):
+    with app.app_context():
+        project = Project(name="Requirements controls")
+        db.session.add(project)
+        db.session.commit()
+        project_id = project.id
+
+    html = client.get(f"/projects/{project_id}").get_data(as_text=True)
+    assert 'id="requirements-search"' in html
+    assert 'id="requirements-filter-priority"' in html
+    assert 'id="requirements-filter-coverage"' in html
+    assert 'id="requirements-result-count"' in html
+    for column in ("code", "title", "description", "priority", "tasks", "status", "coverage"):
+        assert f'data-sort="{column}"' in html
+        assert f'data-requirement-column="{column}"' in html
+    assert 'role="separator"' in html
+    assert "pointerdown" in html
+    assert "ArrowLeft" in html
