@@ -2004,3 +2004,31 @@ body.requirements-column-resizing * {
     page-break-inside: avoid;
   }
 }
+
+/* Capacity in the task grid: the assignee cell carries the one fact that fits on a
+   compact line - this person is already past a full week in these very weeks. */
+.task-assignee {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.task-assignee .form-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Border only: Bootstrap paints the select caret with background-image, so
+   tinting the field that way would erase the caret. */
+.task-assignee-over .form-select {
+  border-color: #f59e0b;
+  padding-right: 1.75rem;
+}
+
+.task-over-mark {
+  flex: 0 0 auto;
+  color: #b45309;
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: help;
+}

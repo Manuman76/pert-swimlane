@@ -20,6 +20,21 @@ from ..models import (
 from ..workdays import next_workday
 
 
+def fmt_allocation(task):
+    """How much of its assignee a task takes, in words (the grid tooltip).
+
+    ``None`` is the pre-capacity meaning — the whole person — so it reads the same
+    as a stored 100. Zero is worth spelling out, because a task that asks nothing
+    of its owner is a data entry mistake people want to see named.
+    """
+    percent = getattr(task, "allocation_percent", None)
+    if percent is None or percent >= 100:
+        return "Whole of this person's time"
+    if percent <= 0:
+        return "Nothing: this task asks no time of its owner"
+    return f"{percent}% of this person's time"
+
+
 def fmt_date(d):
     """Format a date as '01 Jan 2026'."""
     return d.strftime("%d %b %Y") if d else ""
@@ -117,6 +132,26 @@ def next_raid_code(project_id, kind):
             if suffix.isdigit():
                 max_num = max(max_num, int(suffix))
     return f"{prefix}{max_num + 1:03d}"
+
+
+def parse_percent_field(raw, label="Progress", minimum=0, maximum=100):
+    """Read a whole-number percentage out of a form field: ``(value, error)``.
+
+    Blank means "not recorded" (``None``), which for progress is *auto* and for
+    task allocation is the whole of the person. Only decimal digits are accepted,
+    so ``60%``, ``1.5`` and a pasted superscript are refused with a message
+    instead of reaching :func:`int` and raising.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None, None
+    message = f"{label} must be a whole number from {minimum} to {maximum}."
+    if not text.isdecimal():
+        return None, message
+    value = int(text)
+    if not minimum <= value <= maximum:
+        return None, message
+    return value, None
 
 
 def parse_raid_kind(raw):

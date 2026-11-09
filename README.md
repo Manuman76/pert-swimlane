@@ -25,10 +25,11 @@ accounts, no auth, and no sync — one SQLite file per install.
   one is the delivery gate the dashboard measures against.
 - **Baseline** — snapshot the schedule, then see signed working-day variance per
   task, per milestone, and for the project.
-- **Task detail modal** — name, description, status, assignee, priority,
-  progress, lane, dates, linked requirement, notes and links, with predecessors
-  and successors listed as jump links. The project description on the Settings
-  tab is a Quill rich-text editor; blank rich text is stored as NULL.
+- **Task detail modal** — name, description, status, assignee, allocation (what share of
+  that person the task wants), priority, progress, lane, dates, linked requirement, notes
+  and links, with predecessors and successors listed as jump links. The project
+  description on the Settings tab is a Quill rich-text editor; blank rich text is stored
+  as NULL.
 - **Drag-and-drop dependencies** — drag the grip of one or many selected tasks
   onto another task to set predecessors; the "Drop here for no predecessor" zone
   clears them. Validation and recalculation run server-side.
@@ -45,8 +46,10 @@ accounts, no auth, and no sync — one SQLite file per install.
   availability, and nothing about load is stored. Settings carries what it reads: role,
   percent of a person, cost per day and absences (`app/routes/capacity.py`), which lower
   what someone can deliver in a week and never move a task. Over-allocated weeks are
-  painted, badged `▲` and exported to CSV, but never blocked. The task-level allocation
-  field and the capacity KPIs are the remaining phases in `PLAN-resource-capacity.md`.
+  painted, badged `▲` and exported to CSV, but never blocked. Each task says how much of
+  its owner it wants (**Allocation** in the detail modal, blank = the whole person), and a
+  row whose assignee is already past a full week in the task's own weeks wears a `⚠`.
+  The Overview and portfolio KPI cards are the remaining phase in `PLAN-resource-capacity.md`.
 - **Desktop app** — same Flask app in a native window (pywebview), plus a
   PyInstaller build script for shipping a Windows folder/zip.
 
@@ -98,7 +101,7 @@ app/
   templates/               base, index, project (7 tabs), partials/
   static/css/style.css     all styling (~2k lines)
 
-tests/                     17 test modules, 351 tests
+tests/                     18 test modules, 400 tests
 ```
 
 ## Setup
@@ -161,7 +164,7 @@ pytest
 install it (`pip install pywebview`) or run
 `pytest --ignore=tests/test_desktop_api.py`.
 
-Current status on `master`: **350 passed, 1 failed** (excluding the desktop
+Current status on `master`: **399 passed, 1 failed** (excluding the desktop
 module). The failure, `tests/test_project_overview.py::test_overdue_project_health_status`,
 is date-sensitive — see [Known issues](#known-issues).
 
@@ -292,6 +295,10 @@ the first place.
    created).
 6. Responsible must be an available team member.
 7. A linked business requirement must belong to the project.
+8. Allocation must be a whole number from 0 to 100, blank meaning the whole person.
+   Progress follows the same rule — since both share one parser, `150` is refused with a
+   message instead of being read as `100`, and a pasted superscript is refused rather than
+   crashing `int()`.
 
 Blocked task edits return **HTTP 422 with the re-rendered grid row set or modal**
 and the typed values preserved as a draft; the offending row shows a red error
@@ -367,6 +374,13 @@ information, not an error, and the rule in this app is that the plan stays edita
 Work whose owner is not in the team gets an *Unassigned* row, and the name is called
 out under the grid rather than invented as a person.
 
+Demand has two sides, and only one of them is duration. A task's effort is
+`duration × allocation × (100 − progress) ÷ 100`, where **Allocation** (detail modal, beside
+**Responsible**) is the share of that person the task consumes while it runs: two five-day
+tasks in one week are 10 person-days of a 5-day week, but the second at 40% is 7. A
+milestone has no duration to be a share of, so the field is disabled there and a crafted
+post cannot give one a share either.
+
 The toolbar picks the window (`?start=`, `?weeks=8|13|26|whole`) and the mode
 (remaining effort, or the plan as booked). *Export CSV* downloads that same window as
 one row per person per week, so a spreadsheet can pivot it back into the grid on screen
@@ -402,6 +416,10 @@ opens the task detail modal.
   each task appears once, nested under its lowest-numbered predecessor; cycles
   and unreachable tasks are listed after the forest. Collapse state is per project
   in `sessionStorage`.
+- Each row's **Responsible** cell says how much of that person the task wants (`40% of
+  this person's time`), and shows `⚠` with `Ann is at 200% in the week of 8 Jun` when the
+  assignee is already over in the weeks this task needs. The check is the same capacity
+  engine the Capacity tab uses, computed once per grid render and never stored.
 - Rows are multi-selectable; dragging a selection's grip onto another task
   assigns the predecessor in one bulk request
   (`/projects/<id>/tasks/predecessors`) with a single recalculation, and dropping
@@ -447,7 +465,7 @@ plus `partial=…`, and answers carry `HX-Trigger-After-Swap`.
 | POST | `/tasks/<id>/delete` | Delete task (scrubs code from successors) |
 | GET | `/projects/<id>/task-detail-empty` | Empty task-detail partial |
 | GET | `/tasks/<id>/detail` | Task detail modal partial |
-| POST | `/tasks/<id>/detail` | Save modal (description, priority, progress, …) |
+| POST | `/tasks/<id>/detail` | Save modal (description, priority, progress, allocation, …) |
 | POST | `/projects/<id>/lanes` | Lanes: `add` · `rename` · `move_up` · `move_down` · `delete` |
 | POST | `/projects/<id>/members` | Team: `add` (optional starting capacity) · `rename` · `capacity` (role, %, cost/day) · `delete` |
 | POST | `/projects/<id>/absences` | Availability: `add` (first/last day away) · `delete` |

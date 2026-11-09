@@ -105,7 +105,10 @@
   </td>
   <td class="end-date">{% if task.is_milestone %}<span class="text-muted" title="Target date">{{ fmt_date(task.start_date) }}</span>{% else %}{{ fmt_date(task.end_date) }}{% endif %}</td>
   <td>
+    {% set t_over = (capacity_map or {}).get(task.id) %}
+    <div class="task-assignee{% if t_over %} task-assignee-over{% endif %}">
     <select form="task-form-{{ task.id }}" name="responsible" class="form-select form-select-sm"
+            title="{{ fmt_allocation(task) }}"
             onchange="htmx.trigger('#task-form-{{ task.id }}', 'submit')">
       <option value="">Unassigned</option>
       {% if t_resp and not (members | selectattr('name', 'equalto', t_resp) | list) %}
@@ -115,6 +118,11 @@
       <option value="{{ member.name }}" {% if t_resp == member.name %}selected{% endif %}>{{ member.name }}</option>
       {% endfor %}
     </select>
+    {% if t_over %}
+    <span class="task-over-mark" role="img" aria-label="{{ t_over.text }}"
+          title="{{ t_over.text }} &#9642; see the Capacity tab">&#9888;</span>
+    {% endif %}
+    </div>
   </td>
   <td>
     <select form="task-form-{{ task.id }}" name="requirement_id"

@@ -6,6 +6,7 @@ from ..db import db
 from ..models import Project, Task, MOSCOW_CHOICES
 from ..services.common import (
     absences_in_order,
+    fmt_allocation,
     fmt_date,
     lanes_in_order,
     member_roles_in_use,
@@ -130,7 +131,9 @@ def project(id):
         preview=absence_preview(proj),
         requirements=table_ctx["requirements"],
         moscow_choices=MOSCOW_CHOICES,
+        capacity_map=table_ctx["capacity_map"],
         fmt_date=fmt_date,
+        fmt_allocation=fmt_allocation,
         total_effort=total_effort,
         total_duration=total_duration,
         project_start=project_start,

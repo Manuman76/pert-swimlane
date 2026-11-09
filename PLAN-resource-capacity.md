@@ -5,12 +5,14 @@ availability profile, each task carries how much of a person it consumes, and th
 computes **supply vs demand per member per week** so over-allocation is visible before
 the schedule slips.
 
-**Status:** P1, P2 and P3 are built — schema, `app/capacity.py`, the compute tests, the
-Settings side (role / capacity % / cost, absence CRUD, an availability preview), and the
-Capacity tab with its CSV export: 226 tests across `tests/test_capacity.py`,
-`tests/test_capacity_routes.py` and `tests/test_capacity_tab.py`, 350 passing overall with
-the one pre-existing date-sensitive failure. P4–P5 are not started. Where the build
-settled a question the prose left open, it is marked **as built**.
+**Status:** P1–P4 are built — schema, `app/capacity.py`, the compute tests, the
+Settings side (role / capacity % / cost, absence CRUD, an availability preview), the
+Capacity tab with its CSV export, and the task's own share of its owner (detail-modal
+**Allocation**, the grid's `⚠` week warning): 275 tests across `tests/test_capacity.py`,
+`tests/test_capacity_routes.py`, `tests/test_capacity_tab.py` and
+`tests/test_capacity_allocation.py`, 399 passing overall with the one pre-existing
+date-sensitive failure. P5 is not started. Where the build settled a question the prose
+left open, it is marked **as built**.
 
 Design constraints inherited from the codebase:
 
@@ -352,6 +354,17 @@ block, per the README's note about `.task-card` scoping leaking into Bootstrap p
 - Diagram cards: leave untouched in v1 (the A\* router and fixed 168×108 card grid make
   an extra chip a layout change, not a style change).
 
+**P4 as built.** The field sits beside *Responsible*, not above it, and the modal row went
+from three `col-md-4` fields to four `col-md-3` so the pair reads as one decision. There is
+no allocation column and no `·40%` chip on the card: the share is the *Responsible* select's
+tooltip, which is where a reader looks when they wonder why one person is booked three times
+over. The grid's `⚠` comes from `capacity_overload_map`, which builds the model **once per
+grid render** and asks for each task's worst week *inside that task's own window* — a task
+that fits in its own weeks is not marked even when its owner is overloaded elsewhere,
+because the mark has to be about this row. A milestone is never marked, and neither is
+delivered work, an unowned task, a ghost owner or a row without dates: those are not capacity
+problems, and the tab already says what they are.
+
 ### 5.4 Overview + portfolio
 
 - `build_project_overview(...)` gains an optional `capacity=None` argument and
@@ -390,8 +403,40 @@ block, per the README's note about `.task-card` scoping leaking into Bootstrap p
 | **P1** ✅ | Schema + migration + `app/capacity.py` core + unit tests (no UI) | `models.py`, `__init__.py`, `capacity.py`, `tests/test_capacity.py` | M |
 | **P2** ✅ | Settings UI: role/capacity %/cost, absences CRUD, `manage_members` `capacity` action | `routes/settings.py`, `routes/capacity.py`, `partials/settings_members.html`, `partials/settings_absences.html` | M |
 | **P3** ✅ | Capacity tab: heatmap, load bars, window controls, CSV export, `refreshCapacity` fan-out, `#capacity` deep link | `routes/capacity.py`, `partials/capacity.html`, `project.html`, `style.css` | L |
-| **P4** | Task-level allocation: detail-modal field, grid `⚠` hint, validation, 422 draft round-trip | `routes/tasks.py`, `partials/task_detail_panel.html`, `partials/task_row.html` | M |
+| **P4** ✅ | Task-level allocation: detail-modal field, grid `⚠` hint, validation, 422 draft round-trip | `routes/tasks.py`, `partials/task_detail_panel.html`, `partials/task_row.html` | M |
 | **P5** | Overview + portfolio KPIs and health rules, Jira columns, seed data, README | `project_overview.py`, `index.html`, `project_overview.html`, `jira_export.py`, `seed_demo.py`, `README.md` | M |
+
+**P4 delivered** (49 tests in `tests/test_capacity_allocation.py`; the capacity family is
+275 tests, 399 pass overall, same pre-existing date-sensitive failure):
+
+- The detail modal gained **Allocation** beside *Responsible*: a `0–100` number, step 5,
+  placeholder `100`, help text *Share of this person's day while the task runs*. The grid
+  row gained no column, as §5.3 asked for.
+- One parser guards both percentages now: `parse_percent_field` in `services/common.py`
+  takes a whole number in range, treats blank as “not said”, and refuses everything else
+  with *`Allocation must be a whole number from 0 to 100.`* `.isdecimal()`, not `isdigit()`:
+  a pasted superscript used to reach `int()` and raise. Progress went through the same gate,
+  so `progress_percent=150` is now **refused** where it used to be clamped to 100 —
+  deliberate, and the clamp was dead code the number inputs never sent.
+- A milestone has no share of a person: the input is disabled with *A milestone takes no
+  time to run*, and a hand-made post forces `allocation_percent` back to NULL instead of
+  trusting the form.
+- The grid asks the same engine the tab asks. `capacity_overload_map` in `routes/context.py`
+  builds **one** capacity model per grid render (pinned: a test fails if it is built per
+  row, or built at all when nothing could be marked), then marks a task only when it has a
+  real assignee, real dates, is neither a milestone nor delivered, and that person's **worst
+  week inside the task's own window** is over. The row then shows `⚠` with
+  *Ann is at 200% in the week of 8 Jun* and the select wears `task-assignee-over`.
+- The *Responsible* select carries the share as its tooltip — *40% of this person's time*,
+  *Whole of this person's time*, *Nothing: this task asks no time of its owner* — which is
+  §5.3's “tooltip showing allocation”, and why there is still no allocation column.
+- The inline row form deliberately has **no** allocation field, and saving a row does not
+  clear one (test-pinned): the grid row is already the busiest form in the app, and a second
+  number in it would compete with the dates that row is about.
+- A saved modal fires `refreshCapacity`, so the tab follows the new share.
+- One mutation battery of 42 mutants over the parser, the modal save, the map and both
+  templates: all killed but two equivalent ones — restoring the old share on a rejected
+  post, and dropping the ghost guard — neither of which any request can tell apart.
 
 **P3 delivered** (85 tests in `tests/test_capacity_tab.py`; the capacity trio is 226
 tests, 350 pass overall, same pre-existing date-sensitive failure):
@@ -494,11 +539,28 @@ bars, tab order, the `#capacity` hash, and the redraw fan-out — task create/de
 absences, member capacity, holidays and working days all redraw the pane while refused
 edits do not.
 
-Still owed by later phases (P4):
+Written in P4 (`tests/test_capacity_allocation.py`, 49 tests):
 
-- Task detail save with `allocation_percent=150` → **422** and the panel contains the error;
-  valid `40` persists.
-- Milestone with `allocation_percent` is ignored/rejected.
+- the parse rule, parametrised: `""`, `None`, `" 40 "` accepted; `101`, `-5`, `60%`, `1.5`,
+  `twelve` and a superscript refused;
+- a share saves as itself, `0` and `100` are both real numbers, an untouched field still
+  means the whole person;
+- a refused share is **422**, the panel carries the message, the typed value comes back in
+  the input, and the stored value is untouched;
+- progress is held to the same rule, including the superscript that used to raise a 500;
+- a milestone gets no share, by form or by crafted post, and says why;
+- a saved share fires `refreshCapacity`; the inline row form neither shows nor clears one;
+- the share reaches the engine — two 5-day tasks load 200%, the second at 50% makes it 150%,
+  read back off the Capacity tab, and `0%` asks nothing of the week;
+- the grid marks a person already over (`⚠`, the sentence, `task-assignee-over`) and leaves a
+  row that fits alone; the mark waits for **the task's own weeks**, so a later task for the
+  same over-loaded person stays quiet;
+- nothing is marked for a ghost owner, an unowned task, a delivered task, a milestone, or a
+  task with no dates;
+- the tooltip names the week without a leading zero (`the week of 8 Jun`), and the select
+  says the share it is asking for;
+- no capacity build happens when every owner is a ghost, unowned or undated, and exactly
+  **one** build per grid render.
 
 Regression touch-ups: `tests/test_seed_demo.py` (new counts), `tests/test_project_overview.py`
 (health rules now include capacity — pass `capacity=None` explicitly in existing tests to
@@ -615,9 +677,27 @@ and expensive in P3:
    be re-rendered as often as anything else changes — which is what makes the fan-out
    cheap enough to fire on every task edit.
 
+**Settled while building P4:**
+
+9. **A refused share keeps the old one.** `allocation_percent=150` answers **422** with the
+   panel re-rendered, the typed value back in the input and the stored value untouched — the
+   same draft round-trip the rest of the modal uses. `progress_percent` went through the new
+   parser and therefore stopped clamping: `150` is now a message, not a silent 100.
+10. **A milestone owns no time.** The field is disabled, and the save forces NULL whatever
+    the form posts, because `duration 0 × allocation` would otherwise turn a delivery gate
+    into somebody's week.
+11. **The grid pays for one capacity build, not one per row.** `capacity_overload_map`
+    returns early when no task could be marked — no members, only ghosts, nothing dated —
+    and otherwise builds exactly once. Measured on a worst case where every row is warned:
+    the map adds 2 ms at 50 tasks/5 members, 6.5 ms at 200/10, 11.8 ms at 400/10 (the page
+    itself goes 92.5 → 104.3 ms at 400 tasks).
+12. **Allocation stays out of the inline row form.** The row form has no such field and does
+    not clear one, because the grid row is already about names and dates; a third number
+    there would compete with both. The modal is where a share is set.
+
 ---
 
-**Status:** P1, P2 and P3 built and green; P4–P5 unwritten.
+**Status:** P1–P4 built and green; P5 unwritten.
 **Plan taken from:** this conversation, 10 Oct 2026, against `master` at `a406b00`. The
 shape (person-days, ISO weeks, warn-only, per-project, one owner) came from the two
 rounds of questions that opened the work.

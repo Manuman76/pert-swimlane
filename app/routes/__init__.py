@@ -58,6 +58,7 @@ from datetime import date
 
 # Re-exports from services for backwards compatibility with tests and seed scripts:
 from ..services.common import (
+    fmt_allocation,
     fmt_date,
     parse_date,
     normalize_rich_text as _normalize_rich_text,

@@ -6,6 +6,7 @@
   {% set d_links = draft.get('links', task.links or '') %}
   {% set d_priority = draft.get('priority', task.priority) %}
   {% set d_progress = draft.get('progress_percent', '') %}
+  {% set d_alloc = draft.get('allocation_percent', task.allocation_percent if task.allocation_percent is not none else '') %}
   {% set d_lane = draft.get('lane_name', task.lane.name) %}
   {% set d_start = draft.get('start_date', fmt_date(task.start_date)) %}
   {% set d_dur = draft.get('duration_days', task.duration_days) %}
@@ -19,6 +20,7 @@
   {% set d_links = task.links or '' %}
   {% set d_priority = task.priority or 'medium' %}
   {% set d_progress = task.progress_percent if task.progress_percent is not none else '' %}
+  {% set d_alloc = task.allocation_percent if task.allocation_percent is not none else '' %}
   {% set d_lane = task.lane.name %}
   {% set d_start = fmt_date(task.start_date) %}
   {% set d_dur = task.duration_days %}
@@ -61,7 +63,7 @@
       </div>
 
       <div class="row g-3 mb-3">
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
           <label class="form-label fw-semibold small" for="detail-status">Status</label>
           <select class="form-select form-select-sm" id="detail-status" name="status">
             <option value="not_started" {% if d_status == 'not_started' %}selected{% endif %}>Not started</option>
@@ -73,7 +75,7 @@
           </div>
         </div>
 
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
           <label class="form-label fw-semibold small" for="detail-responsible">Responsible</label>
           <select class="form-select form-select-sm" id="detail-responsible" name="responsible">
             <option value="">Unassigned</option>
@@ -83,7 +85,22 @@
           </select>
         </div>
 
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
+          <label class="form-label fw-semibold small" for="detail-allocation">Allocation</label>
+          <div class="input-group input-group-sm">
+            <input class="form-control" id="detail-allocation" name="allocation_percent" type="number"
+                   min="0" max="100" step="5" placeholder="100" value="{{ d_alloc }}"
+                   {% if task.is_milestone %}disabled title="A milestone takes no time to run"{% endif %}>
+            <span class="input-group-text">%</span>
+          </div>
+          <div class="small text-muted mt-1">
+            {%- if task.is_milestone %} A milestone takes no time to run.
+            {%- else %} Share of this person's day while the task runs.
+            {%- endif -%}
+          </div>
+        </div>
+
+        <div class="col-12 col-md-3">
           <label class="form-label fw-semibold small" for="detail-priority">Priority</label>
           <select class="form-select form-select-sm" id="detail-priority" name="priority">
             {% for value, label in priority_choices %}

@@ -21,6 +21,7 @@ from ..services.common import (
     members_in_order,
     requirements_in_order,
     next_task_code,
+    parse_percent_field,
 )
 from ..services.scheduler import (
     recalculate_project,
@@ -394,14 +395,21 @@ def update_task_detail(task_id):
     if new_priority not in ("low", "medium", "high"):
         new_priority = task.priority or "medium"
 
-    progress_raw = request.form.get("progress_percent", "").strip()
-    if progress_raw == "":
-        new_progress = None
-    elif progress_raw.isdigit():
-        new_progress = max(0, min(100, int(progress_raw)))
-    else:
-        errors.append("Progress must be a whole number from 0 to 100.")
+    new_progress, progress_error = parse_percent_field(
+        request.form.get("progress_percent"), "Progress")
+    if progress_error:
+        errors.append(progress_error)
         new_progress = task.progress_percent
+
+    # Allocation is the share of one person's week this task takes while it runs.
+    # Blank means the whole of them, which is what every pre-capacity row means.
+    new_alloc, alloc_error = parse_percent_field(
+        request.form.get("allocation_percent"), "Allocation")
+    if task.is_milestone:
+        new_alloc, alloc_error = None, None
+    if alloc_error:
+        errors.append(alloc_error)
+        new_alloc = task.allocation_percent
 
     lane_name_raw = request.form.get("lane_name", "").strip()
     new_lane_id = task.lane_id
@@ -482,6 +490,7 @@ def update_task_detail(task_id):
     task.links = new_links
     task.priority = new_priority
     task.progress_percent = new_progress
+    task.allocation_percent = new_alloc
     task.lane_id = new_lane_id
     task.start_date = new_start
     task.duration_days = new_dur
