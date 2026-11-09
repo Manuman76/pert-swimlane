@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from .db import db
 from .workdays import add_workdays
 
@@ -8,6 +8,21 @@ requirement_tasks = db.Table(
     db.Column("requirement_id", db.Integer, db.ForeignKey("requirements.id"), primary_key=True),
     db.Column("task_id", db.Integer, db.ForeignKey("tasks.id"), primary_key=True),
 )
+
+
+def _fmt_day(d):
+    """Day number without a leading zero (``6``, not ``06``)."""
+    return str(d.day)
+
+
+def _fmt_short_day(d):
+    """``6 Jul``."""
+    return f"{d.day} {d.strftime('%b')}"
+
+
+def _fmt_long_day(d):
+    """``6 Jul 2026``."""
+    return f"{d.day} {d.strftime('%b %Y')}"
 
 
 class Project(db.Model):
@@ -23,6 +38,7 @@ class Project(db.Model):
     lanes = db.relationship("Lane", backref="project", lazy=True, cascade="all, delete-orphan")
     tasks = db.relationship("Task", backref="project", lazy=True, cascade="all, delete-orphan")
     members = db.relationship("TeamMember", backref="project", lazy=True, cascade="all, delete-orphan")
+    absences = db.relationship("MemberAbsence", backref="project", lazy=True, cascade="all, delete-orphan")
     requirements = db.relationship("Requirement", backref="project", lazy=True, cascade="all, delete-orphan")
     raid_items = db.relationship("RaidItem", backref="project", lazy=True, cascade="all, delete-orphan")
     holidays = db.relationship("Holiday", backref="project", lazy=True, cascade="all, delete-orphan", order_by="Holiday.date")
@@ -64,9 +80,72 @@ class TeamMember(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
     name = db.Column(db.Text, nullable=False)
+    # Capacity is availability, not seniority: 100 means "one person-day per working
+    # day of the project calendar", 60 means three-fifths of that (part-time, shared
+    # with another project, split role). app/capacity.py turns it into weekly supply.
+    role = db.Column(db.Text, nullable=True)
+    capacity_percent = db.Column(db.Integer, nullable=False, default=100)
+    cost_per_day = db.Column(db.Numeric(8, 2, asdecimal=False), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (db.UniqueConstraint("project_id", "name", name="uq_member_name"),)
+
+    absences = db.relationship(
+        "MemberAbsence",
+        back_populates="member",
+        lazy=True,
+        cascade="all, delete-orphan",
+        order_by="MemberAbsence.start_date",
+    )
+
+    @property
+    def capacity_fraction(self):
+        """Availability as a fraction of one full-time person (``None`` → 1.0)."""
+        if self.capacity_percent is None:
+            return 1.0
+        return max(0.0, min(float(self.capacity_percent), 400.0)) / 100.0
+
+
+class MemberAbsence(db.Model):
+    """Days a named resource is not delivering on this project.
+
+    ``end_date`` is **exclusive**, like :attr:`Task.end_date`: a single day off is
+    ``start_date == 2026-07-06, end_date == 2026-07-07``. Absences never change dates —
+    they only lower the supply side of the capacity calculation.
+    """
+
+    __tablename__ = "member_absences"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    member_id = db.Column(
+        db.Integer, db.ForeignKey("team_members.id", ondelete="cascade"), nullable=False
+    )
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)
+    reason = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    member = db.relationship("TeamMember", back_populates="absences")
+
+    __table_args__ = (
+        db.UniqueConstraint("member_id", "start_date", "end_date", name="uq_absence_range"),
+    )
+
+    @property
+    def is_multi_day(self):
+        return self.end_date - self.start_date > timedelta(days=1)
+
+    @property
+    def label(self):
+        """Human range for lists: ``6 Jul 2026`` for one day, ``6 - 17 Jul 2026`` for a span."""
+        last = self.end_date - timedelta(days=1)
+        if last <= self.start_date:
+            return _fmt_long_day(self.start_date)
+        if (last.month, last.year) == (self.start_date.month, self.start_date.year):
+            return f"{_fmt_day(self.start_date)} - {_fmt_long_day(last)}"
+        if last.year == self.start_date.year:
+            return f"{_fmt_short_day(self.start_date)} - {_fmt_long_day(last)}"
+        return f"{_fmt_long_day(self.start_date)} - {_fmt_long_day(last)}"
 
 
 # MoSCoW priority for business requirements (stored value -> label).
@@ -202,6 +281,9 @@ class Task(db.Model):
     notes = db.Column(db.Text, nullable=True)
     links = db.Column(db.Text, nullable=True)
     priority = db.Column(db.Text, nullable=False, default=DEFAULT_PRIORITY)
+    # Share of the assignee's working day this task consumes while it runs.
+    # NULL means 100%; effort = duration_days x allocation_percent x 1%.
+    allocation_percent = db.Column(db.Integer, nullable=True)
     progress_percent = db.Column(db.Integer, nullable=True)
     started = db.Column(db.Boolean, nullable=False, default=False)
     done = db.Column(db.Boolean, nullable=False, default=False)

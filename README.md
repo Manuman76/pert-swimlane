@@ -39,6 +39,10 @@ accounts, no auth, and no sync — one SQLite file per install.
 - **Calendar** — per-project working days and holiday list, used by every date
   calculation.
 - **Jira export** — CSV for the Jira importer, with predecessor links.
+- **Resource capacity** — the compute core is in place (`app/capacity.py`: supply and
+  demand in person-days per ISO week, per member, against the project calendar) with its
+  tests; no screen shows it yet. `PLAN-resource-capacity.md` is the design and the
+  remaining phases.
 - **Desktop app** — same Flask app in a native window (pywebview), plus a
   PyInstaller build script for shipping a Windows folder/zip.
 
@@ -67,13 +71,15 @@ prompt.md                  original v1 build brief — the product's origin stor
 app/
   __init__.py              create_app() + _migrate_schema() (inline ALTER TABLE)
   db.py                    the SQLAlchemy instance
-  models.py                Project, Task, Lane, Requirement, RaidItem,
-                           TeamMember, Holiday + choice constants
+  models.py                Project, Task, Lane, Requirement, RaidItem, TeamMember,
+                           MemberAbsence, Holiday + choice constants
   workdays.py              WorkdayCalendar + is/next/add/count/diff_workdays
   diagram.py               deterministic layout + SVG arrow routing
   project_overview.py      dashboard metrics and health status
   task_tree.py             predecessor-derived grid tree
   requirement_trace.py     coverage per requirement
+  capacity.py              person-day supply vs demand per ISO week (computed, not shown
+                           in the UI yet — `PLAN-resource-capacity.md` has the phases)
   jira_export.py           Jira CSV
   services/
     scheduler.py           recalculate_project, validate_task, baselines, CPM
@@ -88,7 +94,7 @@ app/
   templates/               base, index, project (6 tabs), partials/
   static/css/style.css     all styling (~1.8k lines)
 
-tests/                     15 test modules, ~125 tests
+tests/                     16 test modules, 188 tests
 ```
 
 ## Setup
@@ -151,7 +157,7 @@ pytest
 install it (`pip install pywebview`) or run
 `pytest --ignore=tests/test_desktop_api.py`.
 
-Current status on `master`: **124 passed, 1 failed** (excluding the desktop
+Current status on `master`: **187 passed, 1 failed** (excluding the desktop
 module). The failure, `tests/test_project_overview.py::test_overdue_project_health_status`,
 is date-sensitive — see [Known issues](#known-issues).
 
@@ -200,7 +206,10 @@ projects (id, name, description, workdays, baseline_set_at, created_at, updated_
    |                 probability, impact, mitigation, severity, due_date,
    |                 decision_date, decision_text, rationale)
    |                 UNIQUE(project_id, code)   kind: risk|assumption|issue|decision
-   +-- team_members (id, project_id, name)      UNIQUE(project_id, name)
+   +-- team_members (id, project_id, name, role, capacity_percent, cost_per_day)
+   |                 UNIQUE(project_id, name)
+   |   +-- member_absences (id, project_id, member_id, start_date, end_date, reason)
+   |                       member_id ON DELETE CASCADE; end_date exclusive
    +-- holidays     (id, project_id, date, name) UNIQUE(project_id, date)
 
 requirement_tasks (requirement_id, task_id)   # many-to-many; the grid links a
@@ -214,7 +223,11 @@ requirement_tasks (requirement_id, task_id)   # many-to-many; the grid links a
 - `predecessors` is a comma-separated list of task **codes** with finish-to-start
   semantics; all reads go through `Task.predecessor_codes()`, which de-duplicates.
 - `end_date` is a derived property, never stored: working days for tasks, the
-  target date itself for milestones.
+  target date itself for milestones. `member_absences.end_date` follows the same
+  exclusive convention.
+- `tasks.allocation_percent` and `team_members.capacity_percent` default to NULL and
+  100, so every pre-capacity row behaves exactly as it did before: full task, full
+  person.
 - Status is `done` > `started` > `not_started`; progress is the explicit
   percentage when set, otherwise 100 / 50 / 0 by status.
 - Renaming a team member rewrites `tasks.responsible`; deleting one clears the

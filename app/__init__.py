@@ -69,6 +69,7 @@ def _migrate_schema():
         "baseline_start_date": "DATE",
         "baseline_end_date": "DATE",
         "baseline_duration_days": "INTEGER",
+        "allocation_percent": "INTEGER",
     }
     for col, ddl in task_text_cols.items():
         if col not in existing:
@@ -92,5 +93,18 @@ def _migrate_schema():
                 "ALTER TABLE requirements ADD COLUMN moscow TEXT NOT NULL DEFAULT 'must'"
             )
         )
+
+    # Resource capacity: availability lives on the resource, the demand share on the task.
+    # Existing members have never had a capacity set, and 100% is exactly what the app
+    # behaved as before, so the default keeps old projects reading identically.
+    member_columns = {r[1] for r in db.session.execute(text("PRAGMA table_info(team_members)"))}
+    for col, ddl in (
+        ("role", "TEXT"),
+        ("capacity_percent", "INTEGER NOT NULL DEFAULT 100"),
+        ("cost_per_day", "NUMERIC(8,2)"),
+    ):
+        if member_columns and col not in member_columns:
+            db.session.execute(text(f"ALTER TABLE team_members ADD COLUMN {col} {ddl}"))
+            member_columns.add(col)
 
     db.session.commit()
