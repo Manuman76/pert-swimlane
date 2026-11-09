@@ -19,7 +19,7 @@ from ..services.scheduler import (
 )
 from ..jira_export import export_project_csv, export_filename
 from ..project_overview import build_project_overview, fmt_overview_day
-from .context import bp, task_table_render_kwargs, overview_context
+from .context import bp, task_table_render_kwargs, overview_context, dashboard_capacity
 from .capacity import absence_preview
 from .raid import raid_context
 from .settings import WEEKDAY_CHOICES
@@ -29,7 +29,13 @@ def get_project_stats(project):
     tasks = project.tasks
     requirements = project.requirements
     raid_items = project.raid_items
-    overview = build_project_overview(tasks, requirements, raid_items, project=project)
+    # One coarse capacity pass per project, reusing the relationship loads the card
+    # already pays for: the badge and the portfolio KPI read the same figures the
+    # project's own Overview card will show.
+    overview = build_project_overview(
+        tasks, requirements, raid_items, project=project,
+        capacity=dashboard_capacity(project, tasks, members=project.members),
+    )
     return {
         "id": project.id,
         "name": project.name,
@@ -59,11 +65,19 @@ def index():
     total_milestones = sum(p["overview"].milestones_total for p in project_stats)
     milestones_reached = sum(p["overview"].milestones_completed for p in project_stats)
 
+    # People are counted per project, not merged across them: the same name in two
+    # projects is two bookings against that name, so a total of "3 over capacity" means
+    # three project-people, not three humans. Stated in the card's title attribute.
+    over_allocated_count = sum(p["overview"].members_over for p in project_stats)
+    projects_over_capacity = sum(1 for p in project_stats if p["overview"].members_over)
+
     portfolio_metrics = {
         "total_projects": total_projects,
         "on_track_count": on_track_count,
         "at_risk_count": at_risk_count,
         "critical_count": critical_count,
+        "over_allocated_count": over_allocated_count,
+        "projects_over_capacity": projects_over_capacity,
         "total_tasks": total_tasks,
         "total_completed": total_completed,
         "portfolio_progress": portfolio_progress,
@@ -118,7 +132,10 @@ def project(id):
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
     total_effort, total_duration, project_start, project_end = project_date_stats(tasks)
-    table_ctx = task_table_render_kwargs(proj, tasks)
+    # One whole-plan capacity model for the whole page: the grid's overload marks and
+    # the Overview's Resources card read the same build instead of paying for two.
+    capacity = dashboard_capacity(proj, tasks)
+    table_ctx = task_table_render_kwargs(proj, tasks, capacity=capacity)
     return render_template(
         "project.html",
         project=proj,
@@ -140,7 +157,7 @@ def project(id):
         project_end=project_end,
         weekday_choices=WEEKDAY_CHOICES,
         **raid_context(proj),
-        **overview_context(proj, tasks),
+        **overview_context(proj, tasks, capacity=capacity),
     )
 
 
@@ -198,7 +215,7 @@ def export_jira_csv(id):
     proj = Project.query.get_or_404(id)
     lanes = lanes_in_order(proj.id)
     tasks = Task.query.filter_by(project_id=proj.id).all()
-    csv_text = export_project_csv(proj, lanes, tasks)
+    csv_text = export_project_csv(proj, lanes, tasks, members=proj.members)
     response = make_response(csv_text)
     response.headers["Content-Type"] = "text/csv; charset=utf-8"
     response.headers["Content-Disposition"] = (

@@ -3,9 +3,22 @@
 from datetime import date
 from types import SimpleNamespace
 
+from .capacity import fmt_capacity_days, fmt_capacity_percent
 from .models import RAID_KIND_RISK, RAID_STATUS_OPEN
 from .requirement_trace import REQ_COVERAGE_NOT_COVERED, compute_coverage
 from .workdays import count_workdays, diff_workdays
+
+# Health thresholds. Everything here compares like with like: a working day of slip is
+# one unit, an overloaded week of a named person is another, and the two are never added
+# together into one number.
+#
+# Any slip or overdue day is a warning (``at_risk``); only a slip the steering group has
+# to react to (``> CRITICAL_SLIP_WORKDAYS``) is ``critical``.
+CRITICAL_SLIP_WORKDAYS = 5
+# Capacity, read from the grid app/capacity.py computes for the whole plan.
+CAPACITY_AT_RISK_MEMBERS_OVER = 1
+CAPACITY_CRITICAL_WEEKS_OVER = 2
+CAPACITY_CRITICAL_PEAK_PERCENT = 200
 
 
 def fmt_overview_day(d, include_year=False):
@@ -41,7 +54,85 @@ def _risk_tier(probability, impact):
     return None
 
 
-def build_project_overview(tasks, requirements, raid_items, project=None):
+def capacity_health(capacity):
+    """How a capacity model moves project health: ``(status, reasons)``.
+
+    ``status`` is ``"none"``, ``"at_risk"`` or ``"critical"``; ``reasons`` are the
+    one-liners the health summary appends. Over 100 % is a colour in this app, never a
+    refusal, so capacity can only ever *raise* a status, never soften one, and it says
+    nothing at all until there is a team to measure: a name the roster does not know has
+    no availability to exceed (the Capacity tab keeps that in a sentence).
+
+    * **at_risk** — anyone is booked past a full week somewhere in the plan.
+    * **critical** — a *sustained* crunch: the same person over in
+      :data:`CAPACITY_CRITICAL_WEEKS_OVER` weeks, or a single week at
+      :data:`CAPACITY_CRITICAL_PEAK_PERCENT` or more. One overloaded week is a
+      re-planning job; a run of them, or double the load, is a steering problem.
+    """
+    if capacity is None or not getattr(capacity, "members_total", 0):
+        return "none", []
+
+    rows = list(getattr(capacity, "rows", None) or [])
+    members_over = int(getattr(capacity, "members_over", 0) or 0)
+    members_total = int(getattr(capacity, "members_total", 0) or 0)
+    peak = getattr(capacity, "peak_percent", None)
+    worst = max(rows, key=lambda r: getattr(r, "weeks_over", 0) or 0, default=None)
+    weeks_over = (getattr(worst, "weeks_over", 0) or 0) if worst else 0
+
+    reasons = []
+    if members_over >= CAPACITY_AT_RISK_MEMBERS_OVER:
+        reasons.append(
+            f"{members_over} of {members_total} people over capacity"
+            + (f" (peak {peak}%)" if peak and peak > 100 else "")
+        )
+    crunch = weeks_over >= CAPACITY_CRITICAL_WEEKS_OVER or (
+        peak is not None and peak >= CAPACITY_CRITICAL_PEAK_PERCENT
+    )
+    if crunch:
+        if weeks_over >= CAPACITY_CRITICAL_WEEKS_OVER:
+            who = (getattr(worst, "name", "") or "Someone").strip()
+            reasons.insert(
+                0,
+                f"{who} is over capacity in {weeks_over} weeks",
+            )
+        if peak is not None and peak >= CAPACITY_CRITICAL_PEAK_PERCENT:
+            reasons.append(f"peak load {peak}%")
+        return "critical", reasons
+    if members_over >= CAPACITY_AT_RISK_MEMBERS_OVER:
+        return "at_risk", reasons
+    return "none", []
+
+
+def _capacity_fields(capacity, capacity_status):
+    """The Resources card's figures, pre-formatted so templates stay arithmetic-free."""
+    if capacity is None:
+        return {
+            "has_capacity": False,
+            "capacity_crunch": False,
+            "members_over": 0,
+            "capacity_members_total": 0,
+            "capacity_peak_percent": None,
+            "capacity_peak_str": "—",
+            "capacity_window_weeks": 0,
+            "capacity_unassigned_days": 0.0,
+            "capacity_unassigned_str": "",
+        }
+    peak = getattr(capacity, "peak_percent", None)
+    unassigned = float(getattr(capacity, "unassigned_demand", 0) or 0)
+    return {
+        "has_capacity": bool(getattr(capacity, "members_total", 0)),
+        "capacity_crunch": capacity_status == "critical",
+        "members_over": int(getattr(capacity, "members_over", 0) or 0),
+        "capacity_members_total": int(getattr(capacity, "members_total", 0) or 0),
+        "capacity_peak_percent": peak,
+        "capacity_peak_str": fmt_capacity_percent(peak),
+        "capacity_window_weeks": int(getattr(capacity, "window_weeks", 0) or 0),
+        "capacity_unassigned_days": round(unassigned, 1),
+        "capacity_unassigned_str": fmt_capacity_days(unassigned) if unassigned else "",
+    }
+
+
+def build_project_overview(tasks, requirements, raid_items, project=None, capacity=None):
     """Aggregate task, requirement, risk, milestone, schedule, and baseline figures."""
     cal = getattr(project, "calendar", None) if project else None
     work_tasks = [t for t in tasks if not t.is_milestone]
@@ -163,12 +254,22 @@ def build_project_overview(tasks, requirements, raid_items, project=None):
         default=0
     )
 
+    # People are weighed in before the status is chosen, but never first: a schedule or
+    # risk fact is allowed to outrank them, and capacity can only raise a status.
+    capacity_status, capacity_reasons = capacity_health(capacity)
+
     if total_tasks > 0 and completed == total_tasks:
         health_status = "completed"
         health_label = "Complete"
         health_badge_class = "health-badge-success"
         health_summary = "All planned tasks have been delivered."
-    elif risk_critical > 0 or effective_slip > 5 or overdue_days > 5 or max_milestone_overdue_days > 5:
+    elif (
+        risk_critical > 0
+        or effective_slip > CRITICAL_SLIP_WORKDAYS
+        or overdue_days > CRITICAL_SLIP_WORKDAYS
+        or max_milestone_overdue_days > CRITICAL_SLIP_WORKDAYS
+        or capacity_status == "critical"
+    ):
         health_status = "critical"
         health_label = "Needs Attention"
         health_badge_class = "health-badge-danger"
@@ -183,8 +284,16 @@ def build_project_overview(tasks, requirements, raid_items, project=None):
             reasons.append(f"{schedule_variance_days} workday{'s' if schedule_variance_days != 1 else ''} variance vs baseline")
         elif schedule_slip_days > 0:
             reasons.append(f"{schedule_slip_days} workday{'s' if schedule_slip_days > 1 else ''} slip")
+        reasons.extend(capacity_reasons)
         health_summary = f"Flagged: {', '.join(reasons)}."
-    elif risk_high > 0 or effective_slip > 0 or overdue_days > 0 or overdue_milestones or (req_total > 0 and req_covered == 0):
+    elif (
+        risk_high > 0
+        or effective_slip > 0
+        or overdue_days > 0
+        or overdue_milestones
+        or (req_total > 0 and req_covered == 0)
+        or capacity_status in ("at_risk", "critical")
+    ):
         health_status = "at_risk"
         health_label = "At Risk"
         health_badge_class = "health-badge-warning"
@@ -201,6 +310,7 @@ def build_project_overview(tasks, requirements, raid_items, project=None):
             reasons.append(f"{risk_high} high risk{'s' if risk_high > 1 else ''}")
         if req_total > 0 and req_covered == 0:
             reasons.append("no requirements covered")
+        reasons.extend(capacity_reasons)
         health_summary = f"Notice: {', '.join(reasons)}."
     else:
         health_status = "on_track"
@@ -211,6 +321,8 @@ def build_project_overview(tasks, requirements, raid_items, project=None):
     req_coverage_percent = round(100 * req_covered / req_total) if req_total else 100
 
     return SimpleNamespace(
+        **_capacity_fields(capacity, capacity_status),
+        capacity_status=capacity_status,
         progress_percent=progress_percent,
         tasks_total=total_tasks,
         tasks_completed=completed,

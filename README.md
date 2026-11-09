@@ -49,7 +49,9 @@ accounts, no auth, and no sync — one SQLite file per install.
   painted, badged `▲` and exported to CSV, but never blocked. Each task says how much of
   its owner it wants (**Allocation** in the detail modal, blank = the whole person), and a
   row whose assignee is already past a full week in the task's own weeks wears a `⚠`.
-  The Overview and portfolio KPI cards are the remaining phase in `PLAN-resource-capacity.md`.
+  The Overview tab's **Resources** card and the portfolio cards read the same computed
+  grid (whole plan, coarse) so over-allocation moves project health before the schedule
+  slips.
 - **Desktop app** — same Flask app in a native window (pywebview), plus a
   PyInstaller build script for shipping a Windows folder/zip.
 
@@ -101,7 +103,7 @@ app/
   templates/               base, index, project (7 tabs), partials/
   static/css/style.css     all styling (~2k lines)
 
-tests/                     18 test modules, 400 tests
+tests/                     19 test modules, 400 tests
 ```
 
 ## Setup
@@ -164,9 +166,8 @@ pytest
 install it (`pip install pywebview`) or run
 `pytest --ignore=tests/test_desktop_api.py`.
 
-Current status on `master`: **399 passed, 1 failed** (excluding the desktop
-module). The failure, `tests/test_project_overview.py::test_overdue_project_health_status`,
-is date-sensitive — see [Known issues](#known-issues).
+Current status on `master`: **400 passed** (excluding the desktop
+module, which needs `webview` installed).
 
 ## Seeding a demo project
 
@@ -175,10 +176,12 @@ python seed_demo.py
 ```
 
 Creates **"Northstar Commerce Modernization"** (Jun–Dec 2026) — 6 swimlanes,
-62 dated tasks with statuses and progress, milestones, a set baseline, 30 MoSCoW
-requirements linked to tasks, 17 RAID items, 8 team members, and 5 holidays. It
-replaces that demo project if it already exists and leaves every other project
-alone, so re-running it is safe.
+62 dated tasks with statuses, progress and allocations (25/50/100 %), milestones, a
+set baseline, 30 MoSCoW requirements linked to tasks, 17 RAID items, 8 team members
+with roles and capacities (one at 60 %, one at 50 % whose remaining QA load peaks at
+160 % — the tab demonstrates idle, normal and over in one screen), 3 absences, and 5
+holidays. It replaces that demo project if it already
+exists and leaves every other project alone, so re-running it is safe.
 
 ## Running from anywhere else on your network
 
@@ -329,8 +332,8 @@ and the portfolio cards. Health:
 | Status | When |
 |---|---|
 | `completed` | all tasks done |
-| `critical` ("Needs Attention") | a critical risk (high probability × high impact), or slip / project overdue / milestone overdue **> 5 working days** |
-| `at_risk` ("At Risk") | a high risk, any slip, any overdue day or milestone, or requirements with zero coverage |
+| `critical` ("Needs Attention") | a critical risk (high probability × high impact), slip / project overdue / milestone overdue **> 5 working days**, or a sustained capacity crunch: someone over in **> 2 weeks** or a single week at **≥ 200 %** |
+| `at_risk` ("At Risk") | a high risk, any slip, any overdue day or milestone, requirements with zero coverage, or **anyone booked past a full week** somewhere in the plan |
 | `on_track` ("On Track") | otherwise |
 
 Each non-green status carries a one-line reason (`Flagged: …` / `Notice: …`)
@@ -386,6 +389,17 @@ The toolbar picks the window (`?start=`, `?weeks=8|13|26|whole`) and the mode
 one row per person per week, so a spreadsheet can pivot it back into the grid on screen
 and no one has to read the current window off a URL.
 
+Capacity also feeds project health, from the **whole plan** rather than a chosen window —
+a health status has to see every week the plan owns, so a project cannot look calmer
+because its last quarter is off-screen. It can only ever raise a status, never soften
+one: anyone booked past a full week is `at_risk` ("N of M people over capacity"), and a
+sustained crunch — the same person over in more than 2 weeks, or a single week at 200 %
+or more — is `critical`. The Overview tab's **Resources** card shows the count, the peak
+week and unowned person-days, and links to the tab; the portfolio cards carry the same
+summary as a small `N over capacity` badge per project, counted per project-person (the
+same name in two projects is two bookings). The thresholds live as named constants next
+to the working-day ones at the top of `app/project_overview.py`.
+
 ## Diagram
 
 `app/diagram.py::build_diagram()` computes the whole canvas server-side,
@@ -437,7 +451,10 @@ opens the task detail modal.
 `Description`, `Due date`, `Original Estimate`, `Labels`, a link column named
 `is blocked by` resolved through the shared `Issue ID` column, plus PERT columns
 (`PERT Code`, `Start Date`, `Duration (working days)`, `PERT Status`,
-`Predecessors`) to map to custom fields. Dates come straight from the scheduler,
+`Predecessors`) and capacity columns (`Allocation %` — blank when the task never
+named a share or is a milestone — and `Capacity Role`, the assignee's role from
+the team) to map to custom fields. Columns are appended, never reordered, so an
+existing import template keeps mapping. Dates come straight from the scheduler,
 so they already follow the project calendar. In the desktop build, CSV download
 works because `desktop.py` enables `webview.settings["ALLOW_DOWNLOADS"]`.
 
@@ -502,10 +519,6 @@ plus `partial=…`, and answers carry `HX-Trigger-After-Swap`.
 
 ### Known issues
 
-- `tests/test_project_overview.py::test_overdue_project_health_status` fails
-  depending on the date it runs: its fixture is 10 calendar days old, which is
-  exactly 5 working days overdue today, and `critical` needs **more than** 5.
-  Widen the fixture or relax the threshold to `>= 5`.
 - `pywebview` is in `requirements.txt` but not always installed, which makes
   plain `pytest` abort during collection of `tests/test_desktop_api.py`.
 - The suite runs SQLAlchemy 2.x with the 1.x `Query.get()` /

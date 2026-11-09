@@ -191,8 +191,12 @@ def test_overdue_project_health_status(app):
     it should not appear 'On Track'."""
     from datetime import timedelta
 
+    from app.workdays import add_workdays
+
     today = date.today()
-    past_date = today - timedelta(days=10)
+    # 28 calendar days back is exactly four weeks, so the finish date is always more
+    # than the 5-workday critical threshold behind today, whichever weekday today is.
+    past_date = add_workdays(today - timedelta(days=28), 0)
 
     # 1. Project past finish date with incomplete tasks -> Needs Attention (critical)
     t_overdue = Task(
@@ -222,7 +226,7 @@ def test_overdue_project_health_status(app):
     assert overview_done.health_label == "Complete"
 
     # 3. Future task not started -> On Track
-    future_date = today + timedelta(days=10)
+    future_date = add_workdays(today, 3)
     t_future = Task(
         code="001",
         name="Future Work",

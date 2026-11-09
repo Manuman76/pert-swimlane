@@ -404,7 +404,7 @@ problems, and the tab already says what they are.
 | **P2** ✅ | Settings UI: role/capacity %/cost, absences CRUD, `manage_members` `capacity` action | `routes/settings.py`, `routes/capacity.py`, `partials/settings_members.html`, `partials/settings_absences.html` | M |
 | **P3** ✅ | Capacity tab: heatmap, load bars, window controls, CSV export, `refreshCapacity` fan-out, `#capacity` deep link | `routes/capacity.py`, `partials/capacity.html`, `project.html`, `style.css` | L |
 | **P4** ✅ | Task-level allocation: detail-modal field, grid `⚠` hint, validation, 422 draft round-trip | `routes/tasks.py`, `partials/task_detail_panel.html`, `partials/task_row.html` | M |
-| **P5** | Overview + portfolio KPIs and health rules, Jira columns, seed data, README | `project_overview.py`, `index.html`, `project_overview.html`, `jira_export.py`, `seed_demo.py`, `README.md` | M |
+| **P5** ✅ | Overview + portfolio KPIs and health rules, Jira columns, seed data, README | `project_overview.py`, `index.html`, `project_overview.html`, `jira_export.py`, `seed_demo.py`, `README.md` | M |
 
 **P4 delivered** (49 tests in `tests/test_capacity_allocation.py`; the capacity family is
 275 tests, 399 pass overall, same pre-existing date-sensitive failure):
@@ -696,8 +696,33 @@ and expensive in P3:
     there would compete with both. The modal is where a share is set.
 
 ---
+**P5 delivered** (400 passing, the date-sensitive failure fixed — the overdue test now
+anchors 28 calendar days back, exactly four working weeks, so the slip no longer depends
+on the weekday it runs):
 
-**Status:** P1–P4 built and green; P5 unwritten.
+- `build_project_overview` takes the whole-plan capacity model and weighs it into health
+  last, never first: anyone over is `at_risk`, a sustained crunch (someone over in >2
+  weeks, or a week at ≥200 %) is `critical`, and the reason line names the person, the
+  weeks and the peak. Capacity can only raise a status, never soften one, and says
+  nothing until there is a team to measure.
+- The Overview KPI row gained a fifth **Resources** card (`N of M over · peak P%`,
+  unowned person-days in the footer, linking to `#capacity`); the row switched to equal
+  `col-xl` columns. The portfolio card carries a small `N over capacity` badge per
+  project and the Portfolio strip an `over_allocated_count` badge, both counted per
+  project-person.
+- One capacity build per page render: `main.project` builds the whole-plan model once
+  (the pinned grid test still holds) and hands it to both the grid's overload map and
+  the overview — `worst_week` only reads the weeks inside each task's own window, so a
+  whole-plan model is a superset that marks exactly the same rows.
+- Jira export grew `Allocation %` and `Capacity Role` as appended columns, the route
+  passing the project's members for the role lookup.
+- Seed: 8 members with roles and capacities (one 60 %, one 50 % whose remaining QA load
+  peaks at 160 %), 14 allocations across 25/50/100, 3 absences — idle, normal and over
+  in one screen; `tests/test_seed_demo.py` still green.
+
+---
+
+**Status:** P1–P5 built and green (400 passed).
 **Plan taken from:** this conversation, 10 Oct 2026, against `master` at `a406b00`. The
 shape (person-days, ISO weeks, warn-only, per-project, one owner) came from the two
 rounds of questions that opened the work.

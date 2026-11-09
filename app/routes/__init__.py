@@ -1,6 +1,12 @@
 """Routes package exposing the 'main' Blueprint and re-exports for backwards compatibility."""
 
-from .context import bp, task_table_render_kwargs, task_table_swap_response, overview_context
+from .context import (
+    bp,
+    dashboard_capacity,
+    task_table_render_kwargs,
+    task_table_swap_response,
+    overview_context,
+)
 from .projects import (
     get_project_stats,
     index,

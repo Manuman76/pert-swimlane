@@ -1,12 +1,13 @@
 """Seed a complete, repeatable sample project without disturbing other projects."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from app import create_app
 from app.db import db
 from app.models import (
     Holiday,
     Lane,
+    MemberAbsence,
     Project,
     RaidItem,
     Requirement,
@@ -30,15 +31,33 @@ LANE_NAMES = (
     "Launch & Operations",
 )
 
-MEMBERS = (
-    "Avery Chen",
-    "Jordan Patel",
-    "Morgan Brooks",
-    "Riley Thompson",
-    "Casey Nguyen",
-    "Taylor Reed",
-    "Jamie Flores",
-    "Quinn Campbell",
+# name, role, capacity % — 100 means one person-day per working day
+MEMBER_PROFILES = (
+    ("Avery Chen", "Program lead", 100),
+    ("Jordan Patel", "Business analysis", 100),
+    ("Morgan Brooks", "Design lead", 60),
+    ("Riley Thompson", "Backend engineer", 100),
+    ("Casey Nguyen", "Data engineering", 100),
+    ("Taylor Reed", "Integrations", 100),
+    ("Jamie Flores", "Search & performance", 100),
+    ("Quinn Campbell", "QA & security", 50),
+)
+MEMBERS = tuple(name for name, _role, _capacity in MEMBER_PROFILES)
+
+# task code -> allocation % (share of the owner's day while the task runs; omitted = 100)
+ALLOCATION_PERCENTS = {
+    "003": 25, "006": 50, "034": 25, "051": 50, "055": 25,      # Jordan part-time
+    "005": 50,                                                    # Morgan: two design tracks at 60% capacity
+    "019": 50, "026": 100, "027": 100,                            # Riley: overlapping builds = 200% weeks
+    "030": 50, "038": 50,                                         # Taylor split across launch work
+    "028": 50, "042": 50, "050": 50,                              # Jamie shared with search tuning
+}
+
+# member, first day away, last day away (inclusive), reason
+ABSENCES = (
+    ("Morgan Brooks", date(2026, 7, 13), date(2026, 7, 17), "Vacation"),
+    ("Casey Nguyen", date(2026, 9, 21), date(2026, 9, 25), "Data platform conference"),
+    ("Taylor Reed", date(2026, 8, 17), date(2026, 8, 17), "Family day"),
 )
 
 # code, name, lane, start, workdays, predecessors, owner, priority
@@ -201,11 +220,27 @@ def seed(app=None):
             lane = Lane(project_id=project.id, name=name, sort_order=sort_order)
             db.session.add(lane)
             lanes[name] = lane
-        for name in MEMBERS:
-            db.session.add(TeamMember(project_id=project.id, name=name))
+        members_by_name = {}
+        for name, role, capacity_percent in MEMBER_PROFILES:
+            member = TeamMember(
+                project_id=project.id, name=name,
+                role=role, capacity_percent=capacity_percent,
+            )
+            db.session.add(member)
+            members_by_name[name] = member
         for holiday_date, name in HOLIDAYS:
             db.session.add(Holiday(project_id=project.id, date=holiday_date, name=name))
         db.session.flush()
+        # The model stores an exclusive end, like Task.end_date; the seed lists the
+        # inclusive last day away a person would ask for.
+        for member_name, first_day, last_day, reason in ABSENCES:
+            db.session.add(MemberAbsence(
+                project_id=project.id,
+                member_id=members_by_name[member_name].id,
+                start_date=first_day,
+                end_date=last_day + timedelta(days=1),
+                reason=reason,
+            ))
 
         tasks_by_code = {}
         for code, name, lane_name, start, duration, predecessors, owner, priority in TASKS:
@@ -235,6 +270,7 @@ def seed(app=None):
                 started=started,
                 done=done,
                 progress_percent=100 if done else (60 if started else 0),
+                allocation_percent=ALLOCATION_PERCENTS.get(code),
             )
             if code in {"022", "036", "054", "057"}:
                 task.links = "https://docs.example.com/northstar/" + {
@@ -290,7 +326,8 @@ def seed(app=None):
         print(
             f"Seeded '{project.name}': {len(tasks_by_code)} tasks, "
             f"{len(REQUIREMENTS)} requirements, {len(RAID_ITEMS)} RAID items, "
-            f"and {len(LANE_NAMES)} swimlanes."
+            f"{len(MEMBER_PROFILES)} members (capacities, roles, "
+            f"{len(ABSENCES)} absences), and {len(LANE_NAMES)} swimlanes."
         )
 
 

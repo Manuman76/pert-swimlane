@@ -53,6 +53,11 @@
             {{ portfolio.critical_count }} Attention
           </span>
           {% endif %}
+          {% if portfolio.over_allocated_count %}
+          <span class="badge bg-danger-subtle text-danger rounded-pill" title="People over capacity across projects — the same name in two projects is two bookings">
+            {{ portfolio.over_allocated_count }} over capacity
+          </span>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -281,6 +286,14 @@
               <span class="badge bg-light text-secondary border rounded-pill">
                 {{ p.lanes_count }} lanes &middot; {{ p.members_count }} members
               </span>
+
+              {% if p.overview.members_over %}
+              <a class="badge {% if p.overview.capacity_crunch %}bg-danger{% else %}bg-warning text-dark{% endif %} text-decoration-none rounded-pill"
+                 href="{{ url_for('main.project', id=p.id) }}#capacity"
+                 title="Peak load {{ p.overview.capacity_peak_str }} — open the Capacity tab">
+                {{ p.overview.members_over }} over capacity
+              </a>
+              {% endif %}
             </div>
           </div>
 

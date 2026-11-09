@@ -41,6 +41,10 @@ FIELD_NAMES = [
     # Link column: name it after the Jira link type you want created. It must
     # be a link type enabled in Jira (Admin -> Issues -> Issue linking).
     "is blocked by",
+    # Resource detail, appended last so existing import templates keep mapping.
+    # Jira has no notion of availability: map these to custom fields, or drop them.
+    "Allocation %",
+    "Capacity Role",
 ]
 
 ISSUE_TYPE = "Task"
@@ -68,16 +72,32 @@ def _estimate(task):
     return f"{days}d" if days else ""
 
 
-def export_project_csv(project, lanes, tasks):
+def _member_roles(project, members):
+    """Lower-cased member name -> role, for the ``Assignee`` column to look itself up.
+
+    Names are matched the same case-insensitive way :mod:`app.capacity` matches owners,
+    so a task called "alex" still finds Alex's role. A name the team does not know gets
+    an empty role rather than a guess.
+    """
+    source = members if members is not None else (getattr(project, "members", None) or [])
+    return {
+        (getattr(member, "name", "") or "").strip().lower(): (getattr(member, "role", "") or "")
+        for member in source
+    }
+
+
+def export_project_csv(project, lanes, tasks, members=None):
     """Return the Jira-importable CSV for a project as a string.
 
-    ``lanes`` supplies the component names; ``tasks`` is the project's tasks.
+    ``lanes`` supplies the component names; ``tasks`` is the project's tasks; ``members``
+    supplies the resource roles read from ``Assignee`` (default: the project's own team).
     Rows are ordered by lane order and then PERT code, and each task's
     predecessors are only referenced when they are part of this export (Jira
     cannot create a link to a row that is not in the file).
     """
     lane_names = {lane.id: lane.name for lane in lanes}
     known_codes = {task.code for task in tasks}
+    roles = _member_roles(project, members)
 
     lane_order = {lane.id: index for index, lane in enumerate(lanes)}
     ordered = sorted(
@@ -107,6 +127,14 @@ def export_project_csv(project, lanes, tasks):
             "PERT Status": PERT_STATUS_LABELS.get(task.status, task.status),
             "Predecessors": ", ".join(predecessors),
             "is blocked by": ", ".join(predecessors),
+            # Blank means the task never named a share, which means the whole person;
+            # writing 100 here would be us deciding, and a milestone has no share of a
+            # duration to take in the first place.
+            "Allocation %": (
+                "" if task.allocation_percent is None or task.is_milestone
+                else task.allocation_percent
+            ),
+            "Capacity Role": roles.get((task.responsible or "").strip().lower(), ""),
         })
 
     return buffer.getvalue()
