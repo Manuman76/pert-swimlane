@@ -5,8 +5,10 @@ from flask import render_template, request, redirect, url_for, abort, make_respo
 from ..db import db
 from ..models import Project, Task, MOSCOW_CHOICES
 from ..services.common import (
+    absences_in_order,
     fmt_date,
     lanes_in_order,
+    member_roles_in_use,
     normalize_rich_text,
 )
 from ..services.scheduler import (
@@ -17,6 +19,7 @@ from ..services.scheduler import (
 from ..jira_export import export_project_csv, export_filename
 from ..project_overview import build_project_overview, fmt_overview_day
 from .context import bp, task_table_render_kwargs, overview_context
+from .capacity import absence_preview
 from .raid import raid_context
 from .settings import WEEKDAY_CHOICES
 
@@ -122,6 +125,9 @@ def project(id):
         tasks=tasks,
         task_rows=table_ctx["task_rows"],
         members=table_ctx["members"],
+        member_roles=member_roles_in_use(proj.id),
+        absences=absences_in_order(proj.id),
+        preview=absence_preview(proj),
         requirements=table_ctx["requirements"],
         moscow_choices=MOSCOW_CHOICES,
         fmt_date=fmt_date,

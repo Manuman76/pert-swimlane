@@ -75,6 +75,13 @@ class Holiday(db.Model):
     __table_args__ = (db.UniqueConstraint("project_id", "date", name="uq_project_holiday_date"),)
 
 
+# Availability is a percentage of one full-time person. The ceiling lets one row
+# cover a shared resource (2 people sharing = 200); it is not a headcount field.
+CAPACITY_PERCENT_MIN = 0
+CAPACITY_PERCENT_MAX = 400
+CAPACITY_PERCENT_DEFAULT = 100
+
+
 class TeamMember(db.Model):
     __tablename__ = "team_members"
     id = db.Column(db.Integer, primary_key=True)
@@ -84,7 +91,7 @@ class TeamMember(db.Model):
     # day of the project calendar", 60 means three-fifths of that (part-time, shared
     # with another project, split role). app/capacity.py turns it into weekly supply.
     role = db.Column(db.Text, nullable=True)
-    capacity_percent = db.Column(db.Integer, nullable=False, default=100)
+    capacity_percent = db.Column(db.Integer, nullable=False, default=CAPACITY_PERCENT_DEFAULT)
     cost_per_day = db.Column(db.Numeric(8, 2, asdecimal=False), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -103,7 +110,8 @@ class TeamMember(db.Model):
         """Availability as a fraction of one full-time person (``None`` → 1.0)."""
         if self.capacity_percent is None:
             return 1.0
-        return max(0.0, min(float(self.capacity_percent), 400.0)) / 100.0
+        value = max(CAPACITY_PERCENT_MIN, min(float(self.capacity_percent), CAPACITY_PERCENT_MAX))
+        return value / 100.0
 
 
 class MemberAbsence(db.Model):

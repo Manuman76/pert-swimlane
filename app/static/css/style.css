@@ -724,10 +724,58 @@ body.task-dragging #task-table .task-grid-row { cursor: default; }
 
 .settings-member-row {
   display: flex;
-  align-items: center;
-  gap: .5rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: .35rem;
   padding: .5rem 0;
   border-top: 1px solid #f0f2f5;
+}
+
+.settings-member-line {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+/* Availability row: role fills the line, the two numbers keep a fixed width. */
+.settings-member-capacity {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  flex-wrap: wrap;
+}
+
+.settings-member-capacity .member-capacity-role {
+  flex: 1 1 110px;
+  min-width: 90px;
+}
+
+.settings-member-capacity .member-capacity-percent {
+  width: 104px;
+  flex: 0 0 auto;
+}
+
+.settings-member-capacity .member-capacity-cost {
+  width: 148px;
+  flex: 0 0 auto;
+}
+
+.settings-absence-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .25rem .75rem;
+  border: 1px solid #e9ecef;
+  border-radius: .375rem;
+}
+
+.settings-absence-when {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .settings-member-name {

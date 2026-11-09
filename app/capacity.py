@@ -655,6 +655,20 @@ def build_capacity(
     )
 
 
+def find_week_cell(row, day):
+    """The week cell of ``row`` that contains ``day``, or ``None`` outside the window.
+
+    Used wherever a single date has to be explained by its week: the availability
+    list in Settings, the tooltip on an over-loaded task.
+    """
+    if row is None or day is None:
+        return None
+    for cell in row.weeks:
+        if cell.start <= day < cell.end:
+            return cell
+    return None
+
+
 def find_member_row(capacity, name):
     """The row for a member name (case-insensitive), or ``None``."""
     if capacity is None:

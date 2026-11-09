@@ -23,6 +23,7 @@ from app.capacity import (
     capacity_state,
     build_capacity,
     find_member_row,
+    find_week_cell,
     fmt_capacity_days,
     fmt_capacity_percent,
     week_full_label,
@@ -654,6 +655,28 @@ def test_find_member_row_is_case_insensitive_and_tolerates_blank_names():
     assert find_member_row(caps, "ADA").name == "Ada"
     assert find_member_row(caps, "") is None
     assert find_member_row(caps, None) is None
+    # A page with nothing planned yet passes None round: templates ask and move on.
+    assert find_member_row(None, "Ada") is None
+
+
+def test_find_week_cell_resolves_one_date_to_its_week():
+    caps = capacity_of(project(), [FakeTask("001", MON_1, 5, responsible="Ada")],
+                       [FakeMember("Ada")], weeks=3)
+    row = find_member_row(caps, "Ada")
+    assert find_week_cell(row, MON_1).index == 0
+    assert find_week_cell(row, FRI_5).index == 0          # Friday still week 0
+    assert find_week_cell(row, MON_8).index == 1          # week 0 ends before Monday
+    assert find_week_cell(row, week_start(MON_8) + timedelta(days=6)).index == 1
+
+
+def test_find_week_cell_is_empty_outside_the_window_or_without_a_row():
+    caps = capacity_of(project(), [FakeTask("001", MON_8, 5, responsible="Ada")],
+                       [FakeMember("Ada")], weeks=2, window_start=MON_8)
+    row = find_member_row(caps, "Ada")
+    assert find_week_cell(row, MON_1) is None             # before the window
+    assert find_week_cell(row, MON_22) is None            # after it
+    assert find_week_cell(None, MON_8) is None
+    assert find_week_cell(row, None) is None
 
 
 # ---------------------------------------------------------------------------

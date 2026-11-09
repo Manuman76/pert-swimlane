@@ -1,14 +1,33 @@
-"""Settings routes: lanes and team members management."""
+"""Settings routes: lanes, team members, availability and the project calendar."""
 
-from datetime import datetime, date
+import re
 from flask import render_template, request, redirect, url_for, make_response
 
 from ..db import db
-from ..models import Project, Lane, TeamMember, Task, Holiday
-from ..services.common import lanes_in_order, members_in_order
+from ..models import (
+    Project,
+    Lane,
+    TeamMember,
+    Task,
+    Holiday,
+    CAPACITY_PERCENT_MIN,
+    CAPACITY_PERCENT_MAX,
+    CAPACITY_PERCENT_DEFAULT,
+)
+from ..services.common import (
+    lanes_in_order,
+    member_roles_in_use,
+    members_in_order,
+    parse_flexible_date,
+)
 from ..services.scheduler import recalculate_project
 from ..workdays import WEEKDAY_NAMES
 from .context import bp
+
+# Numeric(8,2) column: nine significant digits, two of them decimals.
+COST_PER_DAY_MAX = 999999.99
+# Free text, shown on one line in the member list and the capacity row header.
+ROLE_MAX_LENGTH = 60
 
 
 def swap_lane_orders(a, b):
@@ -125,16 +144,19 @@ def manage_lanes(id):
 # Member Operations
 # ---------------------------------------------------------------------------
 
-def add_team_member(project, name):
+def add_team_member(project, name, capacity_percent=None):
     name = (name or "").strip()
     if not name:
         return None, ("Team member name is required", 400)
+    capacity, error = parse_capacity_percent(capacity_percent)
+    if error:
+        return None, error
     if TeamMember.query.filter(
         TeamMember.project_id == project.id,
         db.func.lower(TeamMember.name) == name.lower(),
     ).first():
         return None, ("That team member already exists", 400)
-    member = TeamMember(project_id=project.id, name=name)
+    member = TeamMember(project_id=project.id, name=name, capacity_percent=capacity)
     db.session.add(member)
     db.session.commit()
     return member, None
@@ -160,6 +182,54 @@ def rename_team_member(project, member_id, name):
     return member, None
 
 
+def parse_capacity_percent(raw):
+    """(percent, error) for the capacity field: blank means full time.
+
+    A non-number, a value outside 0-400, or a decimal is an error rather than
+    something to round away: the number feeds every week in the plan.
+    """
+    if raw is None or not str(raw).strip():
+        return CAPACITY_PERCENT_DEFAULT, None
+    text = str(raw).strip()
+    if not re.fullmatch(r"[+-]?\d+", text):
+        return None, (f"Capacity must be a whole number ({CAPACITY_PERCENT_MIN}-{CAPACITY_PERCENT_MAX})", 400)
+    value = int(text)
+    if not CAPACITY_PERCENT_MIN <= value <= CAPACITY_PERCENT_MAX:
+        return None, (f"Capacity must be between {CAPACITY_PERCENT_MIN}% and {CAPACITY_PERCENT_MAX}%", 400)
+    return value, None
+
+
+def parse_cost_per_day(raw):
+    """(cost, error) for the per-day rate field: blank means "not tracked"."""
+    if raw is None or not str(raw).strip():
+        return None, None
+    text = str(raw).strip().replace(",", ".")
+    try:
+        value = round(float(text), 2)
+    except (TypeError, ValueError):
+        return None, ("Cost per day must be a number, e.g. 480 or 480.50", 400)
+    if value < 0 or value > COST_PER_DAY_MAX:
+        return None, (f"Cost per day must be between 0 and {COST_PER_DAY_MAX:,.2f}", 400)
+    return value, None
+
+
+def update_member_capacity(project, member_id, role=None, capacity_percent=None, cost_per_day=None):
+    """Save availability for one resource. Names move tasks; these fields don't."""
+    member = TeamMember.query.filter_by(id=member_id, project_id=project.id).first_or_404()
+    capacity, error = parse_capacity_percent(capacity_percent)
+    if error:
+        return None, error
+    cost, error = parse_cost_per_day(cost_per_day)
+    if error:
+        return None, error
+    role = (role or "").strip()[:ROLE_MAX_LENGTH] or None
+    member.role = role
+    member.capacity_percent = capacity
+    member.cost_per_day = cost
+    db.session.commit()
+    return member, None
+
+
 def delete_team_member(project, member_id):
     member = TeamMember.query.filter_by(id=member_id, project_id=project.id).first_or_404()
     for task in Task.query.filter_by(project_id=project.id, responsible=member.name):
@@ -177,9 +247,17 @@ def manage_members(id):
     error = None
 
     if action == "add":
-        _, error = add_team_member(proj, request.form.get("name"))
+        _, error = add_team_member(proj, request.form.get("name"), request.form.get("capacity_percent"))
     elif action == "rename":
         _, error = rename_team_member(proj, member_id, request.form.get("name"))
+    elif action == "capacity":
+        _, error = update_member_capacity(
+            proj,
+            member_id,
+            role=request.form.get("role"),
+            capacity_percent=request.form.get("capacity_percent"),
+            cost_per_day=request.form.get("cost_per_day"),
+        )
     elif action == "delete":
         _, error = delete_team_member(proj, member_id)
     else:
@@ -193,6 +271,7 @@ def manage_members(id):
             "partials/settings_members.html",
             project=proj,
             members=members_in_order(proj.id),
+            member_roles=member_roles_in_use(proj.id),
         )
 
     return redirect(url_for("main.project", id=proj.id) + "#settings")
@@ -206,22 +285,8 @@ WEEKDAY_CHOICES = [(i, WEEKDAY_NAMES[i]) for i in range(7)]
 
 
 def parse_holiday_date(raw, default_year=None):
-    if not raw or not raw.strip():
-        return None
-    s = raw.strip()
-    year = default_year or date.today().year
-    for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y", "%b %d %Y", "%B %d %Y"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except ValueError:
-            pass
-    for fmt in ("%b %d", "%d %b", "%B %d", "%d %B"):
-        try:
-            parsed = datetime.strptime(s, fmt).date()
-            return parsed.replace(year=year)
-        except ValueError:
-            pass
-    return None
+    """Holiday dates accept the same flexible typing as any other settings date."""
+    return parse_flexible_date(raw, default_year=default_year)
 
 
 @bp.route("/projects/<int:id>/workdays", methods=["POST"])

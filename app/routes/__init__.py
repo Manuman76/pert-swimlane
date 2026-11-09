@@ -21,6 +21,12 @@ from .settings import (
     manage_holidays,
     WEEKDAY_CHOICES,
 )
+from .capacity import (
+    parse_absence_range,
+    add_absence,
+    delete_absence,
+    manage_absences,
+)
 from .requirements import (
     requirements_partial_context,
     manage_requirements,

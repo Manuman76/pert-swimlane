@@ -39,10 +39,13 @@ accounts, no auth, and no sync — one SQLite file per install.
 - **Calendar** — per-project working days and holiday list, used by every date
   calculation.
 - **Jira export** — CSV for the Jira importer, with predecessor links.
-- **Resource capacity** — the compute core is in place (`app/capacity.py`: supply and
-  demand in person-days per ISO week, per member, against the project calendar) with its
-  tests; no screen shows it yet. `PLAN-resource-capacity.md` is the design and the
-  remaining phases.
+- **Resource capacity** — Settings carries the availability side: role, percent of a
+  person, cost per day, and absences (`app/routes/capacity.py`), which lower what someone
+  can deliver in a week and never move a task. Availability is read against
+  `app/capacity.py` (supply vs demand in person-days per ISO week), and the list warns
+  when a day off lands in an over-booked week. The Capacity tab, the task-level
+  allocation field and the KPIs are the remaining phases in
+  `PLAN-resource-capacity.md`.
 - **Desktop app** — same Flask app in a native window (pywebview), plus a
   PyInstaller build script for shipping a Windows folder/zip.
 
@@ -78,8 +81,7 @@ app/
   project_overview.py      dashboard metrics and health status
   task_tree.py             predecessor-derived grid tree
   requirement_trace.py     coverage per requirement
-  capacity.py              person-day supply vs demand per ISO week (computed, not shown
-                           in the UI yet — `PLAN-resource-capacity.md` has the phases)
+  capacity.py              person-day supply vs demand per ISO week (computed, never stored)
   jira_export.py           Jira CSV
   services/
     scheduler.py           recalculate_project, validate_task, baselines, CPM
@@ -88,13 +90,14 @@ app/
     context.py             blueprint + shared template context helpers
     projects.py            index, project page, overview, settings, baseline, export
     tasks.py               grid CRUD, predecessors, detail modal
-    settings.py            lanes, members, working days, holidays
+    settings.py            lanes, members and availability, working days, holidays
+    capacity.py            absence CRUD and the availability preview
     requirements.py        requirement CRUD
     raid.py                RAID CRUD
   templates/               base, index, project (6 tabs), partials/
   static/css/style.css     all styling (~1.8k lines)
 
-tests/                     16 test modules, 188 tests
+tests/                     17 test modules, 266 tests
 ```
 
 ## Setup
@@ -157,7 +160,7 @@ pytest
 install it (`pip install pywebview`) or run
 `pytest --ignore=tests/test_desktop_api.py`.
 
-Current status on `master`: **187 passed, 1 failed** (excluding the desktop
+Current status on `master`: **265 passed, 1 failed** (excluding the desktop
 module). The failure, `tests/test_project_overview.py::test_overdue_project_health_status`,
 is date-sensitive — see [Known issues](#known-issues).
 
@@ -249,6 +252,11 @@ holidays).
   day, both when parsed (`parse_date`) and by any recalculation.
 - Changing the working-day pattern or the holiday list recalculates the whole
   project, so a new holiday pushes affected work forward.
+- A member's **absences** are calendar too, but supply-side only: they reduce what that
+  person can deliver in a week and never move a task, so they never trigger a
+  recalculation. Like holidays they are typed freely (`2026-07-06`, `6 Jul 2026`,
+  `Jul 6`); unlike holidays they are per person, and the last day away is stored +1 so a
+  single day off is one day long, exactly as a task's `end_date` is.
 - The Tasks header's **Effort** and **Duration** figures are working-day counts.
 
 Example: task `001` starts Thu 1 Jun with duration 3 → worked Thu 1, Fri 2, Mon 5;
@@ -414,7 +422,8 @@ plus `partial=…`, and answers carry `HX-Trigger-After-Swap`.
 | GET | `/tasks/<id>/detail` | Task detail modal partial |
 | POST | `/tasks/<id>/detail` | Save modal (description, priority, progress, …) |
 | POST | `/projects/<id>/lanes` | Lanes: `add` · `rename` · `move_up` · `move_down` · `delete` |
-| POST | `/projects/<id>/members` | Team: `add` · `rename` · `delete` |
+| POST | `/projects/<id>/members` | Team: `add` (optional starting capacity) · `rename` · `capacity` (role, %, cost/day) · `delete` |
+| POST | `/projects/<id>/absences` | Availability: `add` (first/last day away) · `delete` |
 | POST | `/projects/<id>/workdays` | Working-day pattern (recalculates) |
 | POST | `/projects/<id>/holidays` | Holidays: `add` (adds or replaces by date) · `delete` |
 | POST | `/projects/<id>/requirements` | Requirements: `add` · `update` · `delete` |

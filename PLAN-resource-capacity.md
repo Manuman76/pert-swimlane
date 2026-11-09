@@ -5,9 +5,11 @@ availability profile, each task carries how much of a person it consumes, and th
 computes **supply vs demand per member per week** so over-allocation is visible before
 the schedule slips.
 
-**Status:** P1 is built — schema, `app/capacity.py`, 63 tests in `tests/test_capacity.py`
-(187 passing overall, unchanged failure count). P2–P5 are not started. Where the build
-settled a question the prose left open, it is marked **as built**.
+**Status:** P1 and P2 are built — schema, `app/capacity.py`, the compute tests, and the
+Settings side (role / capacity % / cost, absence CRUD, an availability preview):
+141 tests in `tests/test_capacity.py` + `tests/test_capacity_routes.py`, 265 passing
+overall with the one pre-existing date-sensitive failure. P3–P5 are not started. Where
+the build settled a question the prose left open, it is marked **as built**.
 
 Design constraints inherited from the codebase:
 
@@ -145,6 +147,7 @@ def build_capacity(project=None, tasks=None, members=None, *, weeks=None,
                    remaining_effort=True, today=None) -> SimpleNamespace: ...
 
 def find_member_row(caps, name) -> row or None          # name matching is forgiving
+def find_week_cell(row, day) -> week cell or None        # P2: the week an absence lands in
 def worst_week(caps, name, start=None, end=None) -> week cell or None   # §5.3 grid dots
 def capacity_state(demand, supply) -> "none"|"idle"|"normal"|"tight"|"over"
 def capacity_percent(demand, supply) -> int or None     # None when there is no supply
@@ -231,6 +234,22 @@ Invalid absence ranges (missing/`end_date <= start_date`/unknown member) return 
 `400`s from the simple form endpoint, matching the lanes/holidays convention rather than
 the 422 draft flow.
 
+**As built (P2).** `POST /projects/<id>/absences` exists and behaves like `manage_holidays`
+(form fields `member_id` / `start_date` / `end_date` / `reason`, `partial=settings` returns
+`partials/settings_absences.html`, everything else redirects to `#settings`). The form asks
+for the *inclusive* pair a person knows — first day away, last day away — and
+`parse_absence_range` stores the exclusive end, so the storage convention stays
+`Task.end_date`'s. A single day off is one day long; a reversed range, anything over
+`ABSENCE_MAX_DAYS = 366`, and an exact duplicate are refused with a plain 400, while a
+wider *overlapping* range is allowed because the week maths counts each away day once.
+`absence_preview(project)` in the same module answers the one question Settings can
+afford to answer on every page render — what is each person carrying across the weeks the
+absence list can reach — and is the only capacity object the settings page needs.
+
+`GET /projects/<id>/capacity`, the CSV export and `capacity_context` land with P3; there
+is no tab to refresh before there is a tab, so the `refreshCapacity` fan-out below is
+deliberately still unwritten.
+
 Trigger wiring: add `refreshCapacity` to the existing fan-out so the tab follows
 grid/calendar edits exactly like diagram and stats do.
 
@@ -261,6 +280,25 @@ Add `#settings-absence-list` as the swap target.
 
 Keep the "Team members" card header subtitle honest: *"Available for task assignment ·
 capacity planning"*.
+
+**As built (P2).** Each member is two forms under one row: the existing name + remove
+line, then availability (`role` free text with a `member-roles` datalist of the roles
+already in use, `capacity_percent` 0–400 step 5, `cost_per_day`) posting
+`action=capacity`. Parsing is strict — `parse_capacity_percent` accepts only whole
+numbers, because the field multiplies every week in the plan and a silent rounding rule
+would be a planning decision disguised as a typo fix; `parse_cost_per_day` is relaxed
+about the decimal separator (`,` or `.`) and rounds to the 2dp the column holds. Neither
+save recalculates anything: availability is supply-side annotation, and
+`member.cost_per_day` is the 2dp `Numeric(8, 2)` column the plan asked for, read back as a
+float (`asdecimal=False`) so a future cost column adds numbers instead of importing
+`Decimal`, and `capacity_percent` stays an integer the supply maths divides by 100.
+
+Below the list, `partials/settings_absences.html` holds the absence form and the list of
+recorded absences, plus one honest line from `absence_preview`: the weeks that were
+checked, and a red percentage beside any absence whose week is already over — the
+case where someone is being asked to deliver those days as well as be away. A day off out
+of a fully booked week is 125% and says so; a fully booked week that still fits is 100%
+and stays quiet.
 
 ### 5.2 New **Capacity** tab (after RAID, before Settings)
 
@@ -338,10 +376,28 @@ block, per the README's note about `.task-card` scoping leaking into Bootstrap p
 | Phase | Content | Files | ~Size |
 |---|---|---|---|
 | **P1** ✅ | Schema + migration + `app/capacity.py` core + unit tests (no UI) | `models.py`, `__init__.py`, `capacity.py`, `tests/test_capacity.py` | M |
-| **P2** | Settings UI: role/capacity %/cost, absences CRUD, `manage_members` `capacity` action | `routes/settings.py`, `routes/capacity.py`, `partials/settings_members.html`, `partials/settings_absences.html` | M |
+| **P2** ✅ | Settings UI: role/capacity %/cost, absences CRUD, `manage_members` `capacity` action | `routes/settings.py`, `routes/capacity.py`, `partials/settings_members.html`, `partials/settings_absences.html` | M |
 | **P3** | Capacity tab: heatmap, load bars, window controls, CSV export, `refreshCapacity` fan-out, `#capacity` deep link | `routes/capacity.py`, `partials/capacity.html`, `project.html`, `style.css` | L |
 | **P4** | Task-level allocation: detail-modal field, grid `⚠` hint, validation, 422 draft round-trip | `routes/tasks.py`, `partials/task_detail_panel.html`, `partials/task_row.html` | M |
 | **P5** | Overview + portfolio KPIs and health rules, Jira columns, seed data, README | `project_overview.py`, `index.html`, `project_overview.html`, `jira_export.py`, `seed_demo.py`, `README.md` | M |
+
+**P2 delivered** (76 tests in `tests/test_capacity_routes.py`, plus the ones added to
+`tests/test_capacity.py` for `find_week_cell` and the forgiving row lookup; suite green
+apart from the same pre-existing failure):
+
+- `main.manage_members` `capacity` action, `add` with a starting capacity,
+  `parse_capacity_percent` / `parse_cost_per_day`, `ROLE_MAX_LENGTH` truncation.
+- `app/routes/capacity.py`: `parse_absence_range`, absence add/delete, the HTMX fragment,
+  `absence_preview`, and both halves of the Settings card (templates + CSS).
+- `member_roles_in_use` / `absences_in_order` / `parse_flexible_date` in
+  `app/services/common.py` — the last one is now also what `parse_holiday_date` uses, so
+  holidays and absences accept the same ways of writing a date.
+- The preview costs about 7 ms on a stress project (400 tasks, 10 members, 8 weeks), so
+  it is computed on every settings render rather than cached — which keeps it honest with
+  the "derived, never stored" rule.
+- Mutation-checked: window widening, the exclusive absence end, ignoring a pinned `today`,
+  warning on any booked week instead of only over ones, the horizon, the beyond-horizon
+  list, the week-cell boundary, and each new template branch each fail at least one test.
 
 **P1 delivered** (63 tests in `tests/test_capacity.py`, suite green apart from the
 pre-existing date-sensitive `test_overdue_project_health_status`):
@@ -362,19 +418,29 @@ pre-existing date-sensitive `test_overdue_project_health_status`):
 `seeded` fixtures and covers defaults, the allocation column, the project calendar,
 holidays and the old-schema migration.
 
+**Written in P2** — `tests/test_capacity_routes.py` (76 tests) drives the real routes with
+the test client and checks what the settings card writes: capacity save (blank → 100 and
+`None` cost, padded `" 60 "`, whole numbers only — `60%`, `1.5`, `-5`, `401` all 400 and
+leave the row untouched), cost with either decimal separator and its `Numeric(8,2)` cap,
+role truncation and the de-duplicated/sorted `member-roles` datalist, absence save (four
+date spellings, a bare `"Jul 6"` borrowing the current year, the exclusive end), five bad
+ranges as plain 400s with the message in the body, duplicate range refused while a wider
+overlap is allowed, project scoping of member and absence ids, delete plus 404s, unknown
+actions, XSS escaping of names and reasons, cascade with the member, absence dates never
+moving a task, and the engine reading back exactly what the forms wrote. The preview has
+its own tests: the eight-week window, a far absence widening it, an absence past the
+horizon counted instead of dropped, and a warning only for the weeks that are over.
+
 Still owed by later phases:
 
-`tests/test_capacity_routes.py` (P2, P3):
+`tests/test_capacity_routes.py` (P3, P4):
 
 - `GET /projects/<id>/capacity` renders 200 and contains the member names + week headers.
-- `POST /projects/<id>/absences` `add`/`delete` round-trip, HTMX partial +
-  `HX-Trigger-After-Swap` includes `refreshCapacity`.
-- `manage_members` `capacity` action persists and clamps `capacity_percent` to 0–400.
+- `POST /projects/<id>/absences` `add`/`delete` carry `HX-Trigger-After-Swap` including
+  `refreshCapacity` (the swap target and the plain-POST redirect are already tested).
 - Task detail save with `allocation_percent=150` → **422** and the panel contains the error;
   valid `40` persists.
 - Milestone with `allocation_percent` is ignored/rejected.
-- Absence CRUD: add, add-reversed-range (422), delete, cascade with the member and with
-  the project.
 
 Regression touch-ups: `tests/test_seed_demo.py` (new counts), `tests/test_project_overview.py`
 (health rules now include capacity — pass `capacity=None` explicitly in existing tests to
@@ -423,6 +489,12 @@ holidays"* spelling out the person-day unit, the week bucket, remaining-effort m
 the thresholds; and the `124 passed, 1 failed` status line plus the seed description once
 the numbers move.
 
+**Done as built:** P2 took the feature bullet, the tree (`routes/capacity.py`, the new
+test module, the counts), the members row plus the `absences` row in *Routes*, an
+absences bullet under *Calendar: working days and holidays*, and the status line. The
+"Resource capacity" prose section, the tab list and the health-status table wait for P3
+and P5, when there is a tab and a rule to describe.
+
 ---
 
 ## 12. Questions, settled and open
@@ -446,21 +518,28 @@ and expensive in P3:
    setting for week starts would be read there. The grid's `column_order` setting does not
    touch it, since capacity has no lane ordering to reuse.
 
-**Open — decide when P2 is picked up:**
+**Settled while building P2:**
 
-4. **What clamps what against the calendar.** A Mon–Wed project member has 3 available
-   days, not 5 × 0.6, because supply already counts the project calendar. So should
-   Settings refuse "Friday" for a member with 60% capacity, or let it stand as a
-   statement about a *different* project? Today `_migrate_schema` and the compute core
-   accept it silently (P1 treats the calendar as the ruler and the percentage as the
-   wish); the P2 form is where a validation message could live.
+4. **What clamps what against the calendar.** Settings does not refuse "Friday" for a
+   member on a Mon–Wed project, and does not refuse any whole percentage 0–400: supply
+   already counts the project calendar, so a 60% member on a 3-day week has 1.8 days, and
+   a percentage typed for another project is allowed to look odd here. The refusal the
+   question was worried about is not the job of the form; the job of the form is to not
+   lie, so the availability list states the weeks it checked and puts a red percentage on
+   the one absence whose week is already over. That is the difference between a silent
+   60% and a checked one. `parse_capacity_percent` still refuses non-integers, because a
+   decimal in a field that multiplies every week is a planning decision, not a typo.
+
+**Still open, for P3:**
+
 5. **Whether the unowned row belongs in `members_over`.** P1 excludes it (it counts
-   people); the tab can show it as a separate "unowned work" line. If the KPI card should
-   count unowned work as a problem, that is a one-line change in `build_capacity`.
+   people); the tab can show it as a separate "unowned work" line, and `absence_preview`
+   deliberately says nothing about it either. If the KPI card should count unowned work as
+   a problem, that is a one-line change in `build_capacity`.
 
 ---
 
-**Status:** P1 built and green; P2–P5 unwritten.
+**Status:** P1 and P2 built and green; P3–P5 unwritten.
 **Plan taken from:** this conversation, 10 Oct 2026, against `master` at `a406b00`. The
 shape (person-days, ISO weeks, warn-only, per-project, one owner) came from the two
 rounds of questions that opened the work.

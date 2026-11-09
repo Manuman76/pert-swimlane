@@ -1,11 +1,12 @@
 """Shared parsing and sequence formatting helpers."""
 
-from datetime import datetime
+from datetime import datetime, date
 from ..db import db
 from ..models import (
     Lane,
     Task,
     TeamMember,
+    MemberAbsence,
     Requirement,
     RaidItem,
     MOSCOW_VALUES,
@@ -37,6 +38,31 @@ def parse_date(s, calendar=None):
             return next_workday(datetime.strptime(s.strip(), fmt).date(), calendar=calendar)
         except ValueError:
             continue
+    return None
+
+
+def parse_flexible_date(s, default_year=None):
+    """Parse a date typed by a person, with no working-day roll.
+
+    Accepts ISO plus the formats the settings date inputs and hand-typed entries
+    produce, including a bare "Jul 6" which borrows ``default_year`` (today's by
+    default). Shared by holidays and absences; task dates use :func:`parse_date`,
+    which rolls forward onto the calendar instead.
+    """
+    if not s or not s.strip():
+        return None
+    text = s.strip()
+    year = default_year or date.today().year
+    for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y", "%b %d %Y", "%B %d %Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    for fmt in ("%b %d", "%d %b", "%B %d", "%d %B"):
+        try:
+            return datetime.strptime(text, fmt).date().replace(year=year)
+        except ValueError:
+            pass
     return None
 
 
@@ -119,6 +145,38 @@ def members_in_order(project_id):
     return TeamMember.query.filter_by(project_id=project_id).order_by(
         db.func.lower(TeamMember.name), TeamMember.id
     ).all()
+
+
+def absences_in_order(project_id):
+    """Every recorded absence by member name, then by first day away."""
+    return (
+        MemberAbsence.query
+        .join(TeamMember, MemberAbsence.member_id == TeamMember.id)
+        .filter(MemberAbsence.project_id == project_id)
+        .order_by(
+            db.func.lower(TeamMember.name),
+            TeamMember.id,
+            MemberAbsence.start_date,
+            MemberAbsence.id,
+        )
+        .all()
+    )
+
+
+def member_roles_in_use(project_id):
+    """Roles already typed for this project, for the settings datalist.
+
+    Deduplicated in Python rather than SQL, because the comparison ignores spacing:
+    a role stored as ``"Lead "`` is the same role as ``"Lead"``. Case still matters -
+    ``"Backend"`` and ``"backend"`` are offered as the two different roles they are.
+    """
+    rows = (
+        db.session.query(TeamMember.role)
+        .filter(TeamMember.project_id == project_id, TeamMember.role.isnot(None))
+        .all()
+    )
+    return sorted({row[0].strip() for row in rows if row[0] and row[0].strip()},
+                  key=lambda role: (role.lower(), role))
 
 
 def requirements_in_order(project_id):

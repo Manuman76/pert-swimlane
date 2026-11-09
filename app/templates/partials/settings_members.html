@@ -1,26 +1,65 @@
 {% for member in members %}
 <div class="settings-member-row">
-  <form class="settings-member-name" method="POST"
+  <div class="settings-member-line">
+    <form class="settings-member-name" method="POST"
+          action="{{ url_for('main.manage_members', id=project.id) }}"
+          hx-post="{{ url_for('main.manage_members', id=project.id) }}"
+          hx-target="#settings-members-list" hx-swap="innerHTML">
+      <input type="hidden" name="action" value="rename">
+      <input type="hidden" name="member_id" value="{{ member.id }}">
+      <input type="hidden" name="partial" value="settings">
+      <input class="form-control form-control-sm" name="name"
+             value="{{ member.name }}" aria-label="Team member name" required>
+      <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+    </form>
+    <form method="POST" action="{{ url_for('main.manage_members', id=project.id) }}"
+          hx-post="{{ url_for('main.manage_members', id=project.id) }}"
+          hx-target="#settings-members-list" hx-swap="innerHTML"
+          onsubmit="return confirm('Remove this team member? Assigned tasks will become unassigned.');">
+      <input type="hidden" name="action" value="delete">
+      <input type="hidden" name="member_id" value="{{ member.id }}">
+      <input type="hidden" name="partial" value="settings">
+      <button class="btn btn-sm btn-outline-danger" type="submit" title="Remove">&times;</button>
+    </form>
+  </div>
+
+  {# Availability is per person, not per project week: it scales supply, it never moves a date. #}
+  <form class="settings-member-capacity" method="POST"
         action="{{ url_for('main.manage_members', id=project.id) }}"
         hx-post="{{ url_for('main.manage_members', id=project.id) }}"
         hx-target="#settings-members-list" hx-swap="innerHTML">
-    <input type="hidden" name="action" value="rename">
+    <input type="hidden" name="action" value="capacity">
     <input type="hidden" name="member_id" value="{{ member.id }}">
     <input type="hidden" name="partial" value="settings">
-    <input class="form-control form-control-sm" name="name"
-           value="{{ member.name }}" aria-label="Team member name" required>
-    <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
-  </form>
-  <form method="POST" action="{{ url_for('main.manage_members', id=project.id) }}"
-        hx-post="{{ url_for('main.manage_members', id=project.id) }}"
-        hx-target="#settings-members-list" hx-swap="innerHTML"
-        onsubmit="return confirm('Remove this team member? Assigned tasks will become unassigned.');">
-    <input type="hidden" name="action" value="delete">
-    <input type="hidden" name="member_id" value="{{ member.id }}">
-    <input type="hidden" name="partial" value="settings">
-    <button class="btn btn-sm btn-outline-danger" type="submit" title="Remove">&times;</button>
+    <input class="form-control form-control-sm member-capacity-role" name="role"
+           value="{{ member.role or '' }}" placeholder="Role (optional)" maxlength="60"
+           aria-label="{{ member.name }} role" list="member-roles"
+           title="What they do on this project - optional, and only ever a label">
+    <div class="input-group input-group-sm member-capacity-percent"
+         title="Share of one full-time person. 100 = a person-day for every working day of the project calendar; 60 = part-time or shared with another project; 200 = two people sharing one name.">
+      <input class="form-control form-control-sm text-end" name="capacity_percent" type="number"
+             min="0" max="400" step="5" inputmode="numeric"
+             value="{{ member.capacity_percent if member.capacity_percent is not none else 100 }}"
+             aria-label="{{ member.name }} capacity percent">
+      <span class="input-group-text">%</span>
+    </div>
+    <div class="input-group input-group-sm member-capacity-cost"
+         title="What one working day of this person costs. Not used by capacity planning yet.">
+      <input class="form-control form-control-sm text-end" name="cost_per_day" type="number"
+             min="0" max="999999.99" step="0.01"
+             value="{{ '%.2f'|format(member.cost_per_day) if member.cost_per_day is not none else '' }}"
+             placeholder="&mdash;" aria-label="{{ member.name }} cost per working day">
+      <span class="input-group-text">/day</span>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" type="submit"
+            title="Save role, capacity and cost for {{ member.name }}">Save</button>
   </form>
 </div>
 {% else %}
 <p class="text-muted small mb-0">No team members yet. Add one above.</p>
 {% endfor %}
+<datalist id="member-roles">
+  {% for role in member_roles or [] %}
+  <option value="{{ role }}"></option>
+  {% endfor %}
+</datalist>

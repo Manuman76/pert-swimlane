@@ -1,0 +1,77 @@
+<div id="settings-absences-container">
+  <p class="text-muted small">
+    Leave, study, and the part of a shared person that belongs to another project. An
+    absence lowers what someone can deliver in those days; it never moves a task.
+  </p>
+  {% if preview %}
+  <p class="text-muted small mb-3">
+    Load checked from {{ preview.label }} ({{ preview.weeks }} weeks)
+    {%- if preview.outside %}; {{ preview.outside|length }} absence{{ "" if preview.outside|length == 1 else "s" }} fall{{ "s" if preview.outside|length == 1 else "" }} later{% endif %}.
+  </p>
+  {% endif %}
+  <form class="row g-2 mb-3" method="POST"
+        action="{{ url_for('main.manage_absences', id=project.id) }}"
+        hx-post="{{ url_for('main.manage_absences', id=project.id) }}"
+        hx-target="#settings-absences-container" hx-swap="outerHTML">
+    <input type="hidden" name="action" value="add">
+    <input type="hidden" name="partial" value="settings">
+    <div class="col-12">
+      <label class="visually-hidden" for="absence-member">Team member</label>
+      <select class="form-select form-select-sm" id="absence-member" name="member_id" required>
+        <option value="">Team member&hellip;</option>
+        {% for member in members %}
+        <option value="{{ member.id }}">{{ member.name }}{% if member.capacity_percent not in (none, 100) %} &middot; {{ member.capacity_percent }}%{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6">
+      <label class="visually-hidden" for="absence-start">First day away</label>
+      <input type="date" class="form-control form-control-sm" id="absence-start"
+             name="start_date" required title="First day away" aria-label="First day away">
+    </div>
+    <div class="col-6">
+      <label class="visually-hidden" for="absence-end">Last day away</label>
+      <input type="date" class="form-control form-control-sm" id="absence-end"
+             name="end_date" title="Last day away - leave blank for a single day"
+             aria-label="Last day away">
+    </div>
+    <div class="col-8">
+      <label class="visually-hidden" for="absence-reason">Reason</label>
+      <input type="text" class="form-control form-control-sm" id="absence-reason"
+             name="reason" placeholder="Reason (optional)" maxlength="100"
+             title="Optional - annual leave, course, 40% on another project">
+    </div>
+    <div class="col-4 d-grid">
+      <button class="btn btn-sm btn-outline-success" type="submit">Add</button>
+    </div>
+  </form>
+
+  <div id="settings-absence-list" class="d-flex flex-column gap-1">
+    {% for absence in absences %}
+    <div class="settings-absence-item">
+      <div class="settings-absence-when">
+        <span class="fw-semibold">{{ absence.member.name }}</span>
+        <span class="font-monospace small text-dark">{{ absence.label }}</span>
+        {% if absence.reason %}<span class="text-secondary small">&middot; {{ absence.reason }}</span>{% endif %}
+        {% set cell = preview.warnings.get(absence.id) if preview else none %}
+        {% if cell %}
+        <span class="badge text-bg-danger" title="{{ cell.demand_str }} of work against {{ cell.supply_str }} available in the week of {{ cell.start.strftime('%d %b %Y').lstrip('0') }}{% if cell.task_codes %} ({% endif %}{{ cell.task_codes|join(', ') }}{% if cell.task_codes %}){% endif %}"
+              >{{ cell.percent_str }} booked that week</span>
+        {% endif %}
+      </div>
+      <form method="POST" action="{{ url_for('main.manage_absences', id=project.id) }}"
+            hx-post="{{ url_for('main.manage_absences', id=project.id) }}"
+            hx-target="#settings-absences-container" hx-swap="outerHTML"
+            onsubmit="return confirm('Remove {{ absence.member.name }}&rsquo;s absence {{ absence.label }}?');">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="absence_id" value="{{ absence.id }}">
+        <input type="hidden" name="partial" value="settings">
+        <button class="btn btn-sm btn-outline-danger border-0 py-0 px-2" type="submit"
+                title="Remove absence">&times;</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">No absences recorded. Everyone is available.</p>
+    {% endfor %}
+  </div>
+</div>

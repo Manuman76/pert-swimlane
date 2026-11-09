@@ -422,7 +422,7 @@
       <div class="card shadow-sm mt-4">
         <div class="card-header panel-header d-flex justify-content-between align-items-center">
           <strong>Team members</strong>
-          <span class="text-muted small">Available for task assignment</span>
+          <span class="text-muted small">Available for task assignment &middot; capacity planning</span>
         </div>
         <div class="card-body">
           <form class="row g-2 mb-3" method="POST"
@@ -445,6 +445,11 @@
           <div id="settings-members-list">
             {% include "partials/settings_members.html" %}
           </div>
+
+          <hr class="my-4">
+
+          <h6 class="fw-bold small text-uppercase text-secondary mb-2">Availability</h6>
+          {% include "partials/settings_absences.html" %}
         </div>
       </div>
     </div>
