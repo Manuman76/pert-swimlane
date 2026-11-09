@@ -26,6 +26,11 @@ from .capacity import (
     add_absence,
     delete_absence,
     manage_absences,
+    absence_preview,
+    capacity_context,
+    capacity_csv,
+    capacity_partial,
+    capacity_export_csv,
 )
 from .requirements import (
     requirements_partial_context,

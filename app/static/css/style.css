@@ -1813,3 +1813,194 @@ body.requirements-column-resizing * {
     border-top: 1px solid #e9ecef;
   }
 }
+
+/* ==========================================================================
+   Capacity tab (.capacity-*, .cap-*)
+   --------------------------------------------------------------------------
+   A week cell is one number: booked against available. The fill is a muted
+   ramp so a busy project reads as a gradient rather than a confetti of
+   badges, and over-allocated weeks get red *plus* a ▲ and the percentage -
+   the ramp never carries the meaning on its own.
+   ========================================================================== */
+
+.capacity-table {
+  font-variant-numeric: tabular-nums;
+  border-collapse: separate;
+  /* sticky first column needs its own borders, which collapse won't share */
+}
+
+.capacity-table th,
+.capacity-table td {
+  border-color: #e9ecef;
+}
+
+.capacity-name-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 11.5rem;
+  max-width: 13.5rem;
+  background: #ffffff;
+  border-right: 1px solid #dee2e6 !important;
+  white-space: normal !important;
+  font-weight: 400;
+}
+
+.capacity-table thead .capacity-name-col {
+  z-index: 3;
+}
+
+.capacity-month {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6c757d;
+  background: #f8fafc;
+}
+
+.capacity-week-col {
+  min-width: 3.6rem;
+  text-align: center;
+  font-size: 0.74rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.capacity-week-date {
+  display: block;
+  font-size: 0.68rem;
+  color: #868e96;
+}
+
+/* Weeks behind us are history, not a decision about this week. */
+.capacity-week-past .capacity-cell,
+.capacity-week-past {
+  opacity: 0.6;
+}
+
+.capacity-week-current {
+  background: #f0f7ff;
+}
+
+.capacity-cell {
+  text-align: center;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  color: #495057;
+}
+
+.capacity-cell-value {
+  font-weight: 600;
+}
+
+.capacity-cell-mark {
+  font-size: 0.6rem;
+  vertical-align: 0.08em;
+}
+
+.cap-none {
+  background: #f8fafc;
+  color: #adb5bd;
+}
+
+.cap-idle {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.cap-normal {
+  background: rgba(25, 135, 84, 0.09);
+  color: #12634a;
+}
+
+.cap-tight {
+  background: rgba(245, 158, 11, 0.16);
+  color: #8a5800;
+}
+
+.cap-over {
+  background: #fee2e2;
+  color: #b02a37;
+}
+
+.capacity-row-unassigned .capacity-name-col,
+.capacity-row-total .capacity-name-col {
+  background: #f8fafc;
+}
+
+.capacity-row-total > th,
+.capacity-row-total > td {
+  border-top: 2px solid #cbd5e1;
+}
+
+.capacity-bars {
+  display: grid;
+  gap: 0.4rem;
+  max-width: 46rem;
+}
+
+.capacity-bar-row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr 3.2rem;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+}
+
+.capacity-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #495057;
+}
+
+.capacity-bar-track {
+  position: relative;
+  display: block;
+  height: 0.75rem;
+  background: #e9ecef;
+  border-radius: 4px;
+}
+
+.capacity-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px 0 0 4px;
+  background: linear-gradient(90deg, #198754 0%, #20c997 100%);
+  transition: width 0.25s ease;
+}
+
+.capacity-bar-over .capacity-bar-fill {
+  background: linear-gradient(90deg, #dc3545 0%, #f59e0b 100%);
+}
+
+/* The scale runs to 150%, so a full week sits at two thirds of the track. */
+.capacity-bar-tick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: 66.667%;
+  width: 1px;
+  background: #868e96;
+}
+
+.capacity-bar-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media print {
+  .capacity-scroll {
+    overflow: visible;
+  }
+
+  .capacity-name-col {
+    position: static;
+  }
+
+  .capacity-pane {
+    page-break-inside: avoid;
+  }
+}

@@ -127,8 +127,12 @@ def _description(task):
     return ". ".join(parts) + "."
 
 
-def export_filename(project):
-    """Download filename for the export (keeps it filesystem-safe)."""
+def export_stem(project):
+    """Filesystem-safe project name, shared by every export filename."""
     safe = "".join(c if c.isalnum() or c in " -_" else "-" for c in project.name)
-    safe = "-".join(safe.split()) or "project"
-    return f"{safe}-jira-import.csv"
+    return "-".join(safe.split()) or "project"
+
+
+def export_filename(project):
+    """Download filename for the Jira import file."""
+    return f"{export_stem(project)}-jira-import.csv"

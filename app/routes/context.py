@@ -34,7 +34,7 @@ def task_table_swap_response(proj, tasks, **extra):
         "partials/task_table_body.html",
         **task_table_render_kwargs(proj, tasks, **extra),
     ))
-    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshRequirements"
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshRequirements, refreshCapacity"
     return response
 
 

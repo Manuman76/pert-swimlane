@@ -5,11 +5,12 @@ availability profile, each task carries how much of a person it consumes, and th
 computes **supply vs demand per member per week** so over-allocation is visible before
 the schedule slips.
 
-**Status:** P1 and P2 are built — schema, `app/capacity.py`, the compute tests, and the
-Settings side (role / capacity % / cost, absence CRUD, an availability preview):
-141 tests in `tests/test_capacity.py` + `tests/test_capacity_routes.py`, 265 passing
-overall with the one pre-existing date-sensitive failure. P3–P5 are not started. Where
-the build settled a question the prose left open, it is marked **as built**.
+**Status:** P1, P2 and P3 are built — schema, `app/capacity.py`, the compute tests, the
+Settings side (role / capacity % / cost, absence CRUD, an availability preview), and the
+Capacity tab with its CSV export: 226 tests across `tests/test_capacity.py`,
+`tests/test_capacity_routes.py` and `tests/test_capacity_tab.py`, 350 passing overall with
+the one pre-existing date-sensitive failure. P4–P5 are not started. Where the build
+settled a question the prose left open, it is marked **as built**.
 
 Design constraints inherited from the codebase:
 
@@ -246,9 +247,13 @@ wider *overlapping* range is allowed because the week maths counts each away day
 afford to answer on every page render — what is each person carrying across the weeks the
 absence list can reach — and is the only capacity object the settings page needs.
 
-`GET /projects/<id>/capacity`, the CSV export and `capacity_context` land with P3; there
-is no tab to refresh before there is a tab, so the `refreshCapacity` fan-out below is
-deliberately still unwritten.
+**As built (P3).** `GET /projects/<id>/capacity` and
+`GET /projects/<id>/capacity/export.csv` are both plain GETs through the same
+`capacity_request_args()`, so the file always matches the window on screen. The export is
+long format — `Member,Row type,Role,Capacity %,Week,Week starting,Booked days,Available
+days,Utilization %,Over days,Tasks`, one row per person per week plus the unowned row and
+the weekly team totals — with numbers as numbers and the ratio blank, not infinite, where
+a week offers no availability.
 
 Trigger wiring: add `refreshCapacity` to the existing fan-out so the tab follows
 grid/calendar edits exactly like diagram and stats do.
@@ -322,6 +327,13 @@ button styled exactly like the existing six:
 - Empty state when a project has members but no capacity signal: *"Set capacity in
   Settings → Team members to plan workload."*
 
+**As built (P3).** Two empty states, because there are two different silences: no team (the
+add form says where to set capacity, and the idle capacity is listed under it) and no dated
+work (*nothing is dated yet* — the grid still draws, since idle people on a calendar is
+the true picture). The line above the grid states the window it computed, the mode, how
+many people, how many are over, how much work has no owner, and "…and N more weeks" when
+the plan runs past the window.
+
 Scope CSS under a `.capacity-` prefix in `app/static/css/style.css` in a clearly marked
 block, per the README's note about `.task-card` scoping leaking into Bootstrap panels.
 
@@ -377,9 +389,49 @@ block, per the README's note about `.task-card` scoping leaking into Bootstrap p
 |---|---|---|---|
 | **P1** ✅ | Schema + migration + `app/capacity.py` core + unit tests (no UI) | `models.py`, `__init__.py`, `capacity.py`, `tests/test_capacity.py` | M |
 | **P2** ✅ | Settings UI: role/capacity %/cost, absences CRUD, `manage_members` `capacity` action | `routes/settings.py`, `routes/capacity.py`, `partials/settings_members.html`, `partials/settings_absences.html` | M |
-| **P3** | Capacity tab: heatmap, load bars, window controls, CSV export, `refreshCapacity` fan-out, `#capacity` deep link | `routes/capacity.py`, `partials/capacity.html`, `project.html`, `style.css` | L |
+| **P3** ✅ | Capacity tab: heatmap, load bars, window controls, CSV export, `refreshCapacity` fan-out, `#capacity` deep link | `routes/capacity.py`, `partials/capacity.html`, `project.html`, `style.css` | L |
 | **P4** | Task-level allocation: detail-modal field, grid `⚠` hint, validation, 422 draft round-trip | `routes/tasks.py`, `partials/task_detail_panel.html`, `partials/task_row.html` | M |
 | **P5** | Overview + portfolio KPIs and health rules, Jira columns, seed data, README | `project_overview.py`, `index.html`, `project_overview.html`, `jira_export.py`, `seed_demo.py`, `README.md` | M |
+
+**P3 delivered** (85 tests in `tests/test_capacity_tab.py`; the capacity trio is 226
+tests, 350 pass overall, same pre-existing date-sensitive failure):
+
+- `GET /projects/<id>/capacity` renders `partials/capacity.html` from a `GET`, so Back and
+  *Export CSV* follow the window on screen. `?start=` (any date the day helpers accept),
+  `?weeks=8|13|26|whole`, `?mode=remaining|full`. A typed number is honoured up to the
+  engine's horizon instead of snapped back to the picker, and "whole project" is `None`
+  internally: the plan's own span, padded to eight weeks only because a four-week plan
+  makes an unreadable grid.
+- `app/routes/capacity.py` gained `capacity_context`, `capacity_request_args`,
+  `parse_capacity_weeks`, `parse_capacity_mode`, `month_bands`, `capacity_csv` and the two
+  routes. `export_stem()` came out of `jira_export.export_filename()` so both exports
+  sanitize a project name the same way.
+- Grid as specified: sticky name column, month bands, `W23` over `1 Jun` with the
+  working-day count in the tooltip, past weeks faded and the current week tinted, cells
+  `cap-none/idle/normal/tight/over`, over cells red **and** `▲` **and** a percentage
+  (`—` where the week offers no day at all, since "division by zero" is not a reading),
+  tooltips naming person / booked / available / task codes, an Unassigned row counted in
+  days rather than percentages, and a Team total row.
+- Load profile: one CSS bar per member on a scale that stops at 150 %, the tick at 66.7 %
+  of the track being one full week, over-loaded bars in the warning gradient.
+- **As built, on three points of §5.2.** The row footer moved *into* the sticky column
+  (name, capacity badge, role, `booked of available · util`, and a red `N weeks over`
+  badge carrying `first_over_date` and the total excess): three numbers under a row read as
+  noise when they are the reason the row exists. Ghosts became one sentence under the grid
+  instead of `∅` rows, because naming a person with zero availability would hand them a
+  percentage. `☤` for "outside the plan window" is not drawn — the default window ends
+  with the plan, and a week the reader adds by hand reading as idle is already the truth.
+- `refreshCapacity` joins `refreshStats` on every swap that already fired it — task
+  writes, project settings, working days, holidays, member availability, absences — and
+  the pane listens with `hx-trigger="load, refreshCapacity from:body"`. A **refused** write
+  still fires nothing, and that is tested: a rejected predecessor edit leaves the grid be.
+- Export is long CSV, one row per person per week plus the unowned row and weekly team
+  totals, because a 26-column sheet is unreadable and pivots back to this shape anyway.
+  Utilisation is blank where a week has no availability, never `inf`.
+- Mutation-checked twice (45 + 24 mutants, all killed). Six mutants were real gaps in the
+  first draft of the tests: the singular window note, the current-week mark, the summary
+  naming overloaded members and unowned work, the weeks-over badge, booked/available order
+  in the row header, and the task list in the cell tooltip.
 
 **P2 delivered** (76 tests in `tests/test_capacity_routes.py`, plus the ones added to
 `tests/test_capacity.py` for `find_week_cell` and the forgiving row lookup; suite green
@@ -431,13 +483,19 @@ moving a task, and the engine reading back exactly what the forms wrote. The pre
 its own tests: the eight-week window, a far absence widening it, an absence past the
 horizon counted instead of dropped, and a warning only for the weeks that are over.
 
-Still owed by later phases:
+**Written in P3** — `tests/test_capacity_tab.py` (85 tests) reads the tab as a reader
+does: member rows, the unowned row, the team total, an over week carrying red + `▲` +
+`200%` together, a day off leaving supply at zero and the week still over, quiet weeks not
+over, week labels and dates and the working-day tooltip, month bands, ghost names listed
+without becoming rows, names escaped, every toolbar control reopening where it was left,
+the export link carrying the window, the CSV's numbers as numbers (not `5d`) with a blank
+ratio instead of an infinite one, the filename from the project name, empty states, load
+bars, tab order, the `#capacity` hash, and the redraw fan-out — task create/delete,
+absences, member capacity, holidays and working days all redraw the pane while refused
+edits do not.
 
-`tests/test_capacity_routes.py` (P3, P4):
+Still owed by later phases (P4):
 
-- `GET /projects/<id>/capacity` renders 200 and contains the member names + week headers.
-- `POST /projects/<id>/absences` `add`/`delete` carry `HX-Trigger-After-Swap` including
-  `refreshCapacity` (the swap target and the plain-POST redirect are already tested).
 - Task detail save with `allocation_percent=150` → **422** and the panel contains the error;
   valid `40` persists.
 - Milestone with `allocation_percent` is ignored/rejected.
@@ -491,9 +549,12 @@ the numbers move.
 
 **Done as built:** P2 took the feature bullet, the tree (`routes/capacity.py`, the new
 test module, the counts), the members row plus the `absences` row in *Routes*, an
-absences bullet under *Calendar: working days and holidays*, and the status line. The
-"Resource capacity" prose section, the tab list and the health-status table wait for P3
-and P5, when there is a tab and a rule to describe.
+absences bullet under *Calendar: working days and holidays*, and the status line. P3 took
+a **"Capacity"** section of its own (unit, week bucket, remaining effort, warn-only, the
+toolbar and the long CSV), the two capacity rows in *Routes*, the seventh tab, the
+`refreshCapacity` fan-out sentence, the rewritten feature bullet, and the counts — 17
+test modules, 351 tests, 350 passing. The health-status table still waits for P5, when
+there is a rule to describe.
 
 ---
 
@@ -533,13 +594,30 @@ and expensive in P3:
 **Still open, for P3:**
 
 5. **Whether the unowned row belongs in `members_over`.** P1 excludes it (it counts
-   people); the tab can show it as a separate "unowned work" line, and `absence_preview`
-   deliberately says nothing about it either. If the KPI card should count unowned work as
-   a problem, that is a one-line change in `build_capacity`.
+   people), and the P3 tab kept that split honest: `members_over` counts people, the summary
+   line adds `N unowned` from `unassigned_demand` right beside it, and the Unassigned row
+   gets its own cell shading. So a reader can tell "Ann is over" from "nobody owns this"
+   without the two being added into one alarming number. P5 can raise the health status for
+   unowned work without changing what the tab means.
+
+**Settled while building P3:**
+
+6. **Toolbar state lives in the query string, not in the pane.** `start`, `weeks` and `mode`
+   are query parameters read on every GET, so Back works, a reload keeps the window, the
+   CSV export takes the same parameters, and the pane is free to be wholly re-rendered on
+   `refreshCapacity`. A `hx-post` form or `hx-vals` hidden state would have made every one
+   of those a special case.
+7. **Over 100 % is never only a colour.** Each over cell is a background, a `▲` and a
+   number; the row gets a badge; the summary counts them. Printing in greyscale and
+   colour-blind readers both get the same message, and the percentage means the number is
+   not being asked to carry it alone.
+8. **The tab is a `GET` partial with no writes of its own.** It changes nothing, so it can
+   be re-rendered as often as anything else changes — which is what makes the fan-out
+   cheap enough to fire on every task edit.
 
 ---
 
-**Status:** P1 and P2 built and green; P3–P5 unwritten.
+**Status:** P1, P2 and P3 built and green; P4–P5 unwritten.
 **Plan taken from:** this conversation, 10 Oct 2026, against `master` at `a406b00`. The
 shape (person-days, ISO weeks, warn-only, per-project, one owner) came from the two
 rounds of questions that opened the work.

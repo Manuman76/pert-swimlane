@@ -1,21 +1,31 @@
-"""Capacity routes: per-resource availability.
+"""Capacity routes: per-resource availability and the Capacity tab.
 
 Absences are the only thing stored here. Whether a week is over capacity is never
 saved - :mod:`app.capacity` recomputes it from the tasks, the calendar and these
 rows on every request, like `end_date` and `variance_days`.
 
-The Capacity tab itself is P3 of ``PLAN-resource-capacity.md``; the capacity fields
-on a member (role, percentage, cost) are saved by ``main.manage_members`` in
-:mod:`app.routes.settings`.
+The capacity fields on a member (role, percentage, cost) are saved by
+``main.manage_members`` in :mod:`app.routes.settings`.
 """
 
+import csv
+import io
 from datetime import date, timedelta
 from types import SimpleNamespace
+from urllib.parse import urlencode
 
 from flask import make_response, redirect, render_template, request, url_for
 
 from ..db import db
-from ..capacity import CAP_STATE_OVER, build_capacity, find_week_cell, week_start
+from ..capacity import (
+    CAPACITY_MAX_WEEKS,
+    CAP_STATE_OVER,
+    build_capacity,
+    find_week_cell,
+    fmt_capacity_days,
+    week_start,
+)
+from ..jira_export import export_stem
 from ..models import MemberAbsence, Project, Task, TeamMember
 from ..services.common import (
     absences_in_order,
@@ -30,6 +40,15 @@ ABSENCE_MAX_DAYS = 366
 # How far ahead Settings looks when it says what someone is carrying: about two
 # months, which is the horizon an absence list is usually typed against.
 ABSENCE_PREVIEW_WEEKS = 8
+# The Capacity tab's window picker. "Whole project" is not a choice here: it is
+# what happens when the toolbar is left on the widest option and the plan is short.
+CAPACITY_WEEK_CHOICES = (8, 13, 26)
+CAPACITY_MODE_REMAINING = "remaining"
+CAPACITY_MODE_FULL = "full"
+CAPACITY_MODE_CHOICES = (
+    (CAPACITY_MODE_REMAINING, "Remaining effort"),
+    (CAPACITY_MODE_FULL, "Full plan"),
+)
 
 
 def parse_absence_range(start_raw, end_raw=None, default_year=None):
@@ -173,12 +192,194 @@ def manage_absences(id):
         return error
 
     if request.headers.get("HX-Request") or request.form.get("partial") == "settings":
-        return make_response(render_template(
+        response = make_response(render_template(
             "partials/settings_absences.html",
             project=proj,
             members=members_in_order(proj.id),
             absences=absences_in_order(proj.id),
             preview=absence_preview(proj),
         ))
+        # The week the absence lands in is a different week now, and so is every
+        # headline figure that reads it.
+        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshCapacity"
+        return response
 
     return redirect(url_for("main.project", id=proj.id) + "#settings")
+
+
+# --------------------------------------------------------------------------- #
+# The Capacity tab
+# --------------------------------------------------------------------------- #
+
+def parse_capacity_weeks(raw):
+    """Column count from the toolbar; blank means the plan's own window, which is
+    what a reader means by "whole project".
+
+    Anything that is not a number is treated as that same "show me the plan", so the
+    picker's ``whole`` and a hand-typed ``whole-project`` agree. A number is honoured
+    up to the engine's horizon rather than snapped to the picker: typing 12 into a
+    select that offers 8 is not a mistake.
+    """
+    text = (raw or "").strip().lower()
+    if not text:
+        return None
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        return None
+    return max(1, min(value, CAPACITY_MAX_WEEKS))
+
+
+def parse_capacity_mode(raw):
+    """``full`` for the full plan; anything else asks for the effort still to come."""
+    return CAPACITY_MODE_FULL if (raw or "").strip().lower() == CAPACITY_MODE_FULL else CAPACITY_MODE_REMAINING
+
+
+def month_bands(columns):
+    """Consecutive weeks under one month, as ``[("Jun", 4), ("Jul", 4)]`` for the header."""
+    bands = []
+    for column in columns:
+        label = column.month_label
+        if bands and bands[-1][0] == label:
+            bands[-1] = (label, bands[-1][1] + 1)
+        else:
+            bands.append((label, 1))
+    return bands
+
+
+def capacity_query_args(*, start=None, weeks=None, mode=None):
+    """Query string for the toolbar and the CSV link, so Export exports the window on
+    the screen and not a different one. Defaults are left out to keep links short."""
+    params = {}
+    if start:
+        params["start"] = start.isoformat()
+    if weeks:
+        params["weeks"] = weeks
+    if parse_capacity_mode(mode) != CAPACITY_MODE_REMAINING:
+        params["mode"] = parse_capacity_mode(mode)
+    return urlencode(params)
+
+
+def capacity_request_args(args=None):
+    """Toolbar state from a query string (the tab is a GET, so Back works)."""
+    args = request.args if args is None else args
+    return {
+        "start": parse_flexible_date(args.get("start")),
+        "weeks": parse_capacity_weeks(args.get("weeks")),
+        "mode": parse_capacity_mode(args.get("mode")),
+    }
+
+
+def capacity_context(project, tasks=None, *, start=None, weeks=None, mode=None, today=None):
+    """Grid, columns and toolbar state for the Capacity tab.
+
+    The window is chosen by the reader: an explicit number of weeks, an explicit
+    starting week, or the plan's own span. Nothing here is stored, so moving a task or
+    booking an absence changes the next render and nothing else.
+    """
+    if tasks is None:
+        tasks = Task.query.filter_by(project_id=project.id).all()
+    mode = parse_capacity_mode(mode)
+    caps = build_capacity(
+        project,
+        list(tasks),
+        members_in_order(project.id),
+        window_start=start,
+        weeks=weeks,
+        remaining_effort=(mode != CAPACITY_MODE_FULL),
+        today=today or date.today(),
+    )
+    return {
+        "capacity": caps,
+        "capacity_start": start,
+        "capacity_weeks": weeks,
+        "capacity_mode": mode,
+        "capacity_mode_choices": CAPACITY_MODE_CHOICES,
+        "capacity_week_choices": CAPACITY_WEEK_CHOICES,
+        "capacity_months": month_bands(caps.weeks),
+        # Named weeks, not a date range: the second date is where the last column
+        # starts, so a one-week window says one week and does not pretend to span two.
+        "capacity_window_note": (
+            "1 week from {}".format(fmt_date(caps.window_start))
+            if caps.window_weeks == 1
+            else "{} weeks from {} to {}".format(
+                caps.window_weeks, fmt_date(caps.window_start), fmt_date(caps.weeks[-1].start)
+            )
+        ),
+        "capacity_query": capacity_query_args(start=start, weeks=weeks, mode=mode),
+        "fmt_capacity_days": fmt_capacity_days,
+        "fmt_date": fmt_date,
+    }
+
+
+def capacity_csv(capacity):
+    """The grid as one row per person per week, plus the team's weekly total.
+
+    Long rather than wide: 26 weeks times four numbers is a hundred columns nobody
+    reads, and a spreadsheet can pivot this back into a grid in one drag.
+    """
+    rows = list(capacity.rows)
+    if capacity.unassigned_row is not None:
+        rows.append(capacity.unassigned_row)
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow([
+        "Member", "Row type", "Role", "Capacity %", "Week", "Week starting",
+        "Booked days", "Available days", "Utilization %", "Over days", "Tasks",
+    ])
+    for row in rows:
+        for cell in row.weeks:
+            writer.writerow([
+                row.name,
+                row.kind,
+                row.role,
+                row.capacity_percent,
+                capacity.weeks[cell.index].full_label,
+                cell.start.isoformat(),
+                cell.demand,
+                cell.supply,
+                cell.percent,        # None stays blank: a week nobody can work has no ratio
+                cell.over_days,
+                " ".join(cell.task_codes),
+            ])
+    for total in capacity.totals:
+        writer.writerow([
+            "Team total",
+            "team",
+            "",
+            "",
+            total.label,
+            total.start.isoformat(),
+            total.demand,
+            total.supply,
+            total.percent,
+            "",
+            "",
+        ])
+    return out.getvalue()
+
+
+@bp.route("/projects/<int:id>/capacity", methods=["GET"])
+def capacity_partial(id):
+    """The Capacity tab: a week-by-week grid of who is booked to do what."""
+    proj = Project.query.get_or_404(id)
+    return render_template(
+        "partials/capacity.html",
+        project=proj,
+        **capacity_context(proj, **capacity_request_args()),
+    )
+
+
+@bp.route("/projects/<int:id>/capacity/export.csv", methods=["GET"])
+def capacity_export_csv(id):
+    """Same window as the tab, as a spreadsheet-sized answer."""
+    proj = Project.query.get_or_404(id)
+    args = capacity_request_args()
+    caps = capacity_context(proj, **args)["capacity"]
+    response = make_response(capacity_csv(caps))
+    response.headers["Content-Type"] = "text/csv; charset=utf-8"
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="{export_stem(proj)}-capacity.csv"'
+    )
+    return response

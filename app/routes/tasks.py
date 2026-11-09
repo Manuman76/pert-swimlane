@@ -497,5 +497,5 @@ def update_task_detail(task_id):
         "partials/task_detail_panel.html",
         **task_detail_context(task, proj),
     ))
-    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid, refreshRequirements"
+    response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid, refreshRequirements, refreshCapacity"
     return response

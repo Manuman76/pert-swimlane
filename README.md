@@ -39,13 +39,14 @@ accounts, no auth, and no sync — one SQLite file per install.
 - **Calendar** — per-project working days and holiday list, used by every date
   calculation.
 - **Jira export** — CSV for the Jira importer, with predecessor links.
-- **Resource capacity** — Settings carries the availability side: role, percent of a
-  person, cost per day, and absences (`app/routes/capacity.py`), which lower what someone
-  can deliver in a week and never move a task. Availability is read against
-  `app/capacity.py` (supply vs demand in person-days per ISO week), and the list warns
-  when a day off lands in an over-booked week. The Capacity tab, the task-level
-  allocation field and the KPIs are the remaining phases in
-  `PLAN-resource-capacity.md`.
+- **Resource capacity** — a **Capacity** tab of person-days per ISO week: one row per
+  team member, one column per week, the cell saying how much of that week is booked.
+  Everything in it is computed (`app/capacity.py`) from tasks, the project calendar and
+  availability, and nothing about load is stored. Settings carries what it reads: role,
+  percent of a person, cost per day and absences (`app/routes/capacity.py`), which lower
+  what someone can deliver in a week and never move a task. Over-allocated weeks are
+  painted, badged `▲` and exported to CSV, but never blocked. The task-level allocation
+  field and the capacity KPIs are the remaining phases in `PLAN-resource-capacity.md`.
 - **Desktop app** — same Flask app in a native window (pywebview), plus a
   PyInstaller build script for shipping a Windows folder/zip.
 
@@ -91,13 +92,13 @@ app/
     projects.py            index, project page, overview, settings, baseline, export
     tasks.py               grid CRUD, predecessors, detail modal
     settings.py            lanes, members and availability, working days, holidays
-    capacity.py            absence CRUD and the availability preview
+    capacity.py            absence CRUD, the availability preview, the Capacity tab and its CSV
     requirements.py        requirement CRUD
     raid.py                RAID CRUD
-  templates/               base, index, project (6 tabs), partials/
-  static/css/style.css     all styling (~1.8k lines)
+  templates/               base, index, project (7 tabs), partials/
+  static/css/style.css     all styling (~2k lines)
 
-tests/                     17 test modules, 266 tests
+tests/                     17 test modules, 351 tests
 ```
 
 ## Setup
@@ -160,7 +161,7 @@ pytest
 install it (`pip install pywebview`) or run
 `pytest --ignore=tests/test_desktop_api.py`.
 
-Current status on `master`: **265 passed, 1 failed** (excluding the desktop
+Current status on `master`: **350 passed, 1 failed** (excluding the desktop
 module). The failure, `tests/test_project_overview.py::test_overdue_project_health_status`,
 is date-sensitive — see [Known issues](#known-issues).
 
@@ -347,6 +348,30 @@ its date, and the rationale. Status is `open`/`closed`. Critical and high risks
 feed the health status; the pane re-renders as an HTMX partial
 (`partial=raid`).
 
+## Capacity
+
+One row per team member, one column per ISO week, and the cell is the honest answer to
+"how much of that week is booked". Demand is remaining effort
+(`duration × allocation × (100 − progress) ÷ 100`) spread over the working days a task
+really spans; supply is the calendar's working days × that person's capacity, minus
+their absences. Both sides are person-days, because that is the unit the calendar
+already counts in — hours would be the same number ×8, and FTE would hide who is away.
+
+Nothing about load is stored. `app/capacity.py` recomputes the grid from tasks,
+calendar, capacity and absences on every request, which is why writing any of them
+fires `refreshCapacity` instead of patching a number: a cached utilisation would be a
+second source of truth, and about 7 ms for 400 tasks is not worth the risk of lying.
+
+Over 100 % is a colour, a `▲` and a badge — never a refusal. A full week is
+information, not an error, and the rule in this app is that the plan stays editable.
+Work whose owner is not in the team gets an *Unassigned* row, and the name is called
+out under the grid rather than invented as a person.
+
+The toolbar picks the window (`?start=`, `?weeks=8|13|26|whole`) and the mode
+(remaining effort, or the plan as booked). *Export CSV* downloads that same window as
+one row per person per week, so a spreadsheet can pivot it back into the grid on screen
+and no one has to read the current window off a URL.
+
 ## Diagram
 
 `app/diagram.py::build_diagram()` computes the whole canvas server-side,
@@ -382,8 +407,10 @@ opens the task detail modal.
   (`/projects/<id>/tasks/predecessors`) with a single recalculation, and dropping
   it on the header zone clears the predecessors instead.
 - Every change swaps only `partials/task_table_body.html` and fires
-  `refreshDiagram` / `refreshStats` via `HX-Trigger-After-Swap`, so grid, diagram
-  and dashboard stay in sync without a page reload.
+  `refreshDiagram` / `refreshStats` / `refreshCapacity` via `HX-Trigger-After-Swap`, so
+  grid, diagram, dashboard and capacity grid stay in sync without a page reload. The
+  capacity pane listens for the same fan-out (`hx-trigger="load, refreshCapacity
+  from:body"`), because it holds no state of its own to patch.
 
 ## Jira export
 
@@ -407,7 +434,7 @@ plus `partial=…`, and answers carry `HX-Trigger-After-Swap`.
 | POST | `/projects` | Create project (name, description) |
 | POST | `/projects/<id>/rename` | Rename project |
 | POST | `/projects/<id>/delete` | Delete project (cascades) |
-| GET | `/projects/<id>` | Project page: Overview · Tasks · Diagram · Requirements · RAID · Settings |
+| GET | `/projects/<id>` | Project page: Overview · Tasks · Diagram · Requirements · RAID · Capacity · Settings |
 | GET | `/projects/<id>/overview` | Overview partial (HTMX) |
 | POST | `/projects/<id>/settings` | Update name / description |
 | POST | `/projects/<id>/baseline` | `action=set` snapshot · `action=clear` drop |
@@ -429,6 +456,8 @@ plus `partial=…`, and answers carry `HX-Trigger-After-Swap`.
 | POST | `/projects/<id>/requirements` | Requirements: `add` · `update` · `delete` |
 | GET | `/projects/<id>/requirements/list` | Requirements partial |
 | POST | `/projects/<id>/raid` | RAID: `add` · `update` · `delete` |
+| GET | `/projects/<id>/capacity` | Capacity tab partial (`?start=`, `?weeks=8/13/26/whole`, `?mode=remaining/full`) |
+| GET | `/projects/<id>/capacity/export.csv` | The window on screen as CSV: one row per person per week |
 
 ## Notes
 

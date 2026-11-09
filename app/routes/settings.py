@@ -267,12 +267,20 @@ def manage_members(id):
         return error
 
     if request.form.get("partial") == "settings":
-        return render_template(
+        response = make_response(render_template(
             "partials/settings_members.html",
             project=proj,
             members=members_in_order(proj.id),
             member_roles=member_roles_in_use(proj.id),
+        ))
+        # Renaming rewrites who owns a task and deleting takes the owner away, so
+        # the grid is stale after both. Capacity is the one thing the grid does not
+        # show - but it changes what every week in the capacity grid can hold.
+        response.headers["HX-Trigger-After-Swap"] = (
+            "refreshStats, refreshDiagram, refreshCapacity"
+            + ("" if action == "capacity" else ", refreshGrid")
         )
+        return response
 
     return redirect(url_for("main.project", id=proj.id) + "#settings")
 
@@ -319,7 +327,7 @@ def update_project_workdays(id):
             project=proj,
             weekday_choices=WEEKDAY_CHOICES,
         ))
-        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid"
+        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid, refreshCapacity"
         return response
 
     return redirect(url_for("main.project", id=proj.id) + "#settings")
@@ -359,7 +367,7 @@ def manage_holidays(id):
             "partials/settings_holidays.html",
             project=proj,
         ))
-        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid"
+        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid, refreshCapacity"
         return response
 
     return redirect(url_for("main.project", id=proj.id) + "#settings")

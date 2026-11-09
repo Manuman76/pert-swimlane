@@ -42,6 +42,11 @@
             aria-controls="raid-pane" aria-selected="false">RAID</button>
   </li>
   <li class="nav-item" role="presentation">
+    <button class="nav-link" id="capacity-tab" data-bs-toggle="tab"
+            data-bs-target="#capacity-pane" type="button" role="tab"
+            aria-controls="capacity-pane" aria-selected="false">Capacity</button>
+  </li>
+  <li class="nav-item" role="presentation">
     <button class="nav-link" id="settings-tab" data-bs-toggle="tab"
             data-bs-target="#settings-pane" type="button" role="tab"
             aria-controls="settings-pane" aria-selected="false">Settings</button>
@@ -308,6 +313,24 @@
   </div>
 </div>
 
+<div class="tab-pane fade" id="capacity-pane" role="tabpanel"
+     aria-labelledby="capacity-tab" tabindex="0">
+  <div class="card shadow-sm">
+    <div class="card-header panel-header">
+      <strong>Capacity</strong>
+      <span class="text-muted small ms-2">Who is booked, week by week, in person-days</span>
+    </div>
+    <div class="card-body">
+      {# Derived, so it is re-fetched rather than patched: any edit that moves demand
+         or supply fires refreshCapacity, the same fan-out the other panes use. #}
+      <div id="capacity-loader"
+           hx-get="{{ url_for('main.capacity_partial', id=project.id) }}"
+           hx-trigger="load, refreshCapacity from:body"
+           hx-swap="innerHTML"></div>
+    </div>
+  </div>
+</div>
+
 <div class="tab-pane fade" id="settings-pane" role="tabpanel"
      aria-labelledby="settings-tab" tabindex="0">
   <div class="row g-4">
@@ -469,6 +492,7 @@
     '#diagram': '#diagram-tab',
     '#requirements': '#requirements-tab',
     '#raid': '#raid-tab',
+    '#capacity': '#capacity-tab',
     '#settings': '#settings-tab',
     '#plan': '#tasks-tab'
   };
@@ -492,6 +516,8 @@
         ? '#requirements'
         : event.target.id === 'raid-tab'
         ? '#raid'
+        : event.target.id === 'capacity-tab'
+        ? '#capacity'
         : event.target.id === 'settings-tab'
         ? '#settings'
         : '#overview';

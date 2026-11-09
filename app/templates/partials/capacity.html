@@ -1,0 +1,186 @@
+{# Capacity tab: one row per member, one column per ISO week.
+   Every number here is derived by app.capacity from tasks, calendars and absences;
+   none of it is stored, so this partial re-renders truthfully after any edit. #}
+<div class="capacity-pane" id="capacity-body">
+  <form class="row g-2 align-items-end mb-3" method="get"
+        action="{{ url_for('main.capacity_partial', id=project.id) }}"
+        hx-get="{{ url_for('main.capacity_partial', id=project.id) }}"
+        hx-target="#capacity-body" hx-swap="outerHTML">
+    <div class="col-6 col-md-auto">
+      <label class="form-label small mb-1" for="capacity-start">From week</label>
+      <input class="form-control form-control-sm" type="date" id="capacity-start" name="start"
+             value="{{ capacity_start.isoformat() if capacity_start else '' }}"
+             title="First week to show - leave empty to start where the plan starts">
+    </div>
+    <div class="col-6 col-md-auto">
+      <label class="form-label small mb-1" for="capacity-weeks">Weeks</label>
+      <select class="form-select form-select-sm" id="capacity-weeks" name="weeks">
+        <option value="whole"{% if not capacity_weeks %} selected{% endif %}>Whole project</option>
+        {% for count in capacity_week_choices %}
+        <option value="{{ count }}"{% if capacity_weeks == count %} selected{% endif %}>{{ count }} weeks</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-md-auto">
+      <label class="form-label small mb-1" for="capacity-mode">Show</label>
+      <select class="form-select form-select-sm" id="capacity-mode" name="mode"
+              title="Remaining effort weights each task by its progress; Full plan shows the plan as booked">
+        {% for value, label in capacity_mode_choices %}
+        <option value="{{ value }}"{% if capacity_mode == value %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto d-flex gap-2 align-items-end">
+      <button class="btn btn-sm btn-primary" type="submit">Update</button>
+      <a class="btn btn-sm btn-outline-secondary text-nowrap"
+         href="{{ url_for('main.capacity_export_csv', id=project.id) }}{% if capacity_query %}?{{ capacity_query }}{% endif %}"
+         title="Download this window as a CSV - one row per person per week">Export CSV</a>
+    </div>
+  </form>
+
+  {% if not capacity.has_capacity_data %}
+  <p class="text-muted mb-0">
+    Set capacity in Settings &rarr; Team members to plan workload.
+    <a href="{{ url_for('main.project', id=project.id) }}#settings">Open Settings</a>
+  </p>
+  {% else %}
+  <p class="small text-muted mb-2">
+    {{ capacity_window_note }}
+    &middot; {{ capacity_mode == 'full' and 'full plan' or 'remaining effort' }}
+    &middot; {{ capacity.members_total }} member{{ '' if capacity.members_total == 1 else 's' }}
+    {% if capacity.members_over %}
+    &middot; <span class="text-danger">{{ capacity.members_over }} over
+      capacity</span>
+    {% endif %}
+    {% if capacity.unassigned_demand %}
+    &middot; {{ fmt_capacity_days(capacity.unassigned_demand) }} unowned
+    {% endif %}
+    {% if capacity.window_truncated %}
+    &middot; the plan runs past these {{ capacity.window_weeks }} weeks
+    {% endif %}
+  </p>
+
+  {% if not capacity.has_work %}
+  <p class="small text-muted mb-2">
+    Nothing dated yet, so nobody is booked in any of these weeks - and an absence still
+    shows as nobody being there.
+  </p>
+  {% endif %}
+
+  <div class="capacity-scroll table-responsive">
+    <table class="table table-sm table-bordered align-middle capacity-table">
+      <caption class="visually-hidden">Weekly capacity per member, in person-days</caption>
+      <thead>
+        <tr>
+          <th scope="col" class="capacity-name-col">Member</th>
+          {% for label, span in capacity_months %}
+          <th scope="col" class="capacity-month" colspan="{{ span }}">{{ label }}</th>
+          {% endfor %}
+        </tr>
+        <tr>
+          <th scope="col" class="capacity-name-col">
+            <span class="fw-normal text-muted small">booked / available</span>
+          </th>
+          {% for week in capacity.weeks %}
+          <th scope="col" class="capacity-week-col{% if week.is_past %} capacity-week-past{% endif %}{% if week.is_current %} capacity-week-current{% endif %}"
+              title="{{ week.full_label }} &middot; {{ week.working_days }} working days">
+            <span class="fw-semibold">{{ week.label }}</span>
+            <span class="capacity-week-date">{{ week.head }}</span>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in capacity.rows %}
+        <tr class="capacity-row" id="capacity-row-{{ row.member_id }}">
+          <th scope="row" class="capacity-name-col">
+            <span class="fw-semibold">{{ row.name }}</span>
+            {% if row.capacity_percent != 100 %}
+            <span class="badge text-bg-light border ms-1">{{ row.capacity_percent }}%</span>
+            {% endif %}
+            {% if row.role %}
+            <span class="d-block text-muted small">{{ row.role }}</span>
+            {% endif %}
+            <span class="d-block text-muted small">
+              {{ row.total_demand_str }} of {{ row.total_supply_str }}
+              &middot; {{ row.utilization_str }} utilised
+            </span>
+            {% if row.weeks_over %}
+            <span class="badge text-bg-danger mt-1"
+                  title="{% if row.first_over_date %}from {{ fmt_date(row.first_over_date) }}, {% endif %}{{ row.total_over_days }} person-days too much in total">
+              {{ row.weeks_over }} week{{ '' if row.weeks_over == 1 else 's' }} over
+            </span>
+            {% endif %}
+          </th>
+          {% for cell in row.weeks %}
+          <td class="capacity-cell cap-{{ cell.state }}"
+              title="{{ row.name }} &middot; {{ cell.demand_str }} booked of {{ cell.supply_str }} available{% if cell.task_codes %} &middot; tasks {{ cell.task_codes | join(', ') }}{% endif %}">
+            <span class="capacity-cell-value">{{ cell.percent_str }}</span>
+            {% if cell.state == 'over' %}<span class="capacity-cell-mark" aria-hidden="true">&#9650;</span>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+        {% if capacity.unassigned_row %}
+        {% set row = capacity.unassigned_row %}
+        <tr class="capacity-row capacity-row-unassigned">
+          <th scope="row" class="capacity-name-col">
+            <span class="fw-semibold">{{ row.name }}</span>
+            <span class="d-block text-muted small">{{ row.role }}</span>
+            <span class="d-block text-muted small">{{ row.total_demand_str }} booked</span>
+          </th>
+          {% for cell in row.weeks %}
+          <td class="capacity-cell cap-{{ cell.state }}"
+              title="No owner{% if cell.task_codes %} &middot; tasks {{ cell.task_codes | join(', ') }}{% endif %}">
+            <span class="capacity-cell-value">{{ cell.demand_str }}</span>
+          </td>
+          {% endfor %}
+        </tr>
+        {% endif %}
+        {% set gap = capacity.total_supply - capacity.total_demand %}
+        <tr class="capacity-row capacity-row-total">
+          <th scope="row" class="capacity-name-col">
+            <span class="fw-semibold">Team total</span>
+            <span class="d-block text-muted small">{{ fmt_capacity_days(capacity.total_demand) }} of
+              {{ fmt_capacity_days(capacity.total_supply) }} &middot;
+              {{ fmt_capacity_days(gap if gap >= 0 else -gap) }}
+              {{ 'spare' if gap >= 0 else 'short' }}</span>
+          </th>
+          {% for total in capacity.totals %}
+          <td class="capacity-cell cap-{{ total.state }}"
+              title="{{ total.demand_str }} booked of {{ total.supply_str }} available across the team">
+            <span class="capacity-cell-value">{{ total.percent_str }}</span>
+            {% if total.state == 'over' %}<span class="capacity-cell-mark" aria-hidden="true">&#9650;</span>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% if capacity.ghosts %}
+  <p class="small text-warning-emphasis bg-warning-subtle border border-warning-subtle rounded p-2 mb-3">
+    Work is assigned to names that are not in the team, so nobody's week accounts for it:
+    {%- for ghost in capacity.ghosts %} {{ ghost.name }} ({{ fmt_capacity_days(ghost.demand) }}){{ "," if not loop.last }}{% endfor -%}.
+    Fix the spelling in the task grid, or add the person in Settings.
+  </p>
+  {% endif %}
+
+  <h3 class="h6">Load profile</h3>
+  <p class="small text-muted">Total booked against total available over these
+    {{ capacity.window_weeks }} weeks; the line is a full week.</p>
+  <div class="capacity-bars">
+    {% for row in capacity.rows %}
+    <div class="capacity-bar-row">
+      <span class="capacity-bar-name">{{ row.name }}</span>
+      <span class="capacity-bar-track{% if row.is_over %} capacity-bar-over{% endif %}"
+            title="{{ row.total_demand_str }} of {{ row.total_supply_str }} available">
+        <span class="capacity-bar-fill" style="width: {{ (([row.utilization_percent or 0, 150] | min) / 150 * 100) | round(1) }}%"></span>
+        <span class="capacity-bar-tick" aria-hidden="true"></span>
+      </span>
+      <span class="capacity-bar-value{% if row.is_over %} text-danger{% endif %}">{{ row.utilization_str }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

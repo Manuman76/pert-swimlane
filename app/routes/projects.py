@@ -183,7 +183,7 @@ def manage_baseline(id):
             project=proj,
             **overview_context(proj, tasks),
         ))
-        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid"
+        response.headers["HX-Trigger-After-Swap"] = "refreshStats, refreshDiagram, refreshGrid, refreshCapacity"
         return response
 
     tab_fragment = "#settings" if request.form.get("tab") == "settings" else "#overview"
